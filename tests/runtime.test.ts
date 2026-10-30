@@ -101,3 +101,11 @@ it('runs two sessions independently and cancellation affects only its target', a
   await event(runtime, id, 'cancelled'); await idle(runtime, other);
   expect(runtime.snapshot().events.filter(e => e.sessionId === other).at(-1)?.type).toBe('completed');
 });
+
+it('protects private data when its parent directory has a filesystem alias', async () => {
+  const { root, directory } = await setup();
+  const alias = join(root, 'parent-alias'); await symlink(root, alias, 'dir');
+  const files = await WorkspaceFiles.grant(root, join(alias, 'private'));
+  await expect(files.read('private/state.json')).rejects.toThrow('私有');
+  expect((await files.list()).some(entry => entry.name === 'private')).toBe(false);
+});

@@ -11,7 +11,7 @@ export class WorkspaceFiles {
     const root = await realpath(path);
     if (!(await lstat(root)).isDirectory()) throw new Error('请选择文件夹');
     if (root === sep) throw new Error('不能授权整个文件系统');
-    return new WorkspaceFiles(root, privateDirectory);
+    return new WorkspaceFiles(root, await realpath(privateDirectory));
   }
   async resolve(path: string, allowNew = false) {
     if (isAbsolute(path) || path.includes('\\') || path.includes('\0') || path.split('/').some(p => p === '..' || p.startsWith('.'))) throw new Error('不允许路径逃逸、隐藏文件或符号链接');
