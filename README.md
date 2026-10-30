@@ -21,6 +21,10 @@ pnpm web
 
 默认没有模型配置，不会自动使用 Mock。打开“模型与设置”，可选 DeepSeek、OpenAI 兼容 Chat Completions 接口，或明确选择“离线验证”。真实模型支持提供商、模型 ID、Base URL 和 API Key；普通保存配置不发请求；DeepSeek 可显式查询可用模型，点击发送才调用生成接口。
 
+## macOS 安装包
+
+在 GitHub Actions 中选择 **Build macOS arm64 → Run workflow**，手动生成 Apple Silicon 的 DMG 和 ZIP。版本取根 `package.json`，产物从该运行的 Artifacts 下载；不会自动创建 Release。当前为无 Developer ID、未公证的测试构建。详见 [打包与下载说明](docs/packaging.md)。
+
 ## 实际使用流程
 
 1. 创建会话；每个会话有自己的历史、工作目录和运行状态，支持切换与重启恢复历史。
