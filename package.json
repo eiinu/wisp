@@ -15,16 +15,30 @@
     "web:build": "pnpm --filter @wisp/desktop exec vite build --mode web-preview --outDir ../web-preview-dist",
     "web:dev": "pnpm --filter @wisp/desktop dev",
     "web:simulate": "pnpm web:build && pnpm simulate:build && node apps/host/dist/dev.js",
-    "simulate:build": "esbuild apps/host/src/dev/main.ts --bundle --platform=node --format=esm --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/* --external:@modelcontextprotocol/sdk/* --outfile=apps/host/dist/dev.js"
+    "simulate:build": "esbuild apps/host/src/dev/main.ts --bundle --platform=node --format=esm --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/* --external:@modelcontextprotocol/sdk/* --outfile=apps/host/dist/dev.js",
+    "package:mac": "pnpm build && electron-builder --config electron-builder.yml --mac dmg zip --arm64 --publish never",
+    "package:dir": "pnpm build && electron-builder --config electron-builder.yml --dir --publish never",
+    "package:verify": "node scripts/verify-package.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "electron": "45.1.0",
+    "electron-builder": "26.18.0",
     "esbuild": "^0.27.0",
     "typescript": "^5.9.0",
     "vite": "8.3.5",
     "vitest": "5.0.5"
-  }
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.4.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@playwright/mcp": "0.0.83"
+  },
+  "version": "0.1.0",
+  "description": "A local personal agent workbench",
+  "main": "apps/desktop/dist/main.js",
+  "author": "eiinu <eiinu@qq.com>",
+  "license": "MIT"
 }

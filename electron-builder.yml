@@ -1,0 +1,28 @@
+appId: io.github.eiinu.wisp
+productName: Wisp
+directories:
+  output: release
+# Host and MCP spawn real Node entrypoints; keep their dependency files outside ASAR.
+asar: false
+npmRebuild: false
+files:
+  - apps/desktop/dist/main.js
+  - apps/desktop/dist/preload.cjs
+  - apps/desktop/ui-dist/**
+  - apps/host/dist/main.js
+  - package.json
+  - LICENSE
+artifactName: Wisp-${version}-${arch}.${ext}
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  category: public.app-category.productivity
+  # Ad-hoc signing supports Apple Silicon without a Developer ID certificate.
+  identity: '-'
+  notarize: false
+dmg:
+  sign: false
+publish: null

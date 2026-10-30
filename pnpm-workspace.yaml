@@ -5,3 +5,4 @@ allowBuilds:
   '@google/genai@2.21.0': true
   esbuild@0.27.7: true
   protobufjs@7.6.6: true
+  electron-winstaller@5.4.0: false
