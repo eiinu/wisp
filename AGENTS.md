@@ -11,7 +11,10 @@
   ```
 
   该协助作者身份已核实于 [OpenAI 官方 Codex 源码中的默认 attribution](https://github.com/openai/codex/blob/e4a3612/codex-rs/core/src/commit_attribution.rs#L1)，不使用虚构邮箱。
-- 提交前核对有效身份，提交后检查实际 Author、Committer 与 trailer。不得因本规范擅自改写已发布历史；修正旧提交需用户另行明确授权。
+- 提交前核对有效身份，提交后检查实际 Author、Committer 与 trailer。
+- 后续禁止覆盖或改写已推送历史，禁止 force push（包括 `--force-with-lease`）。需要修正内容时使用正常追加提交。
+- 2026-10-30 的五条实现提交署名修正是用户明确批准的单次例外：仅此次允许用绑定已核验远程 SHA 的 `--force-with-lease` 更新历史，保留初始提交、原代码树和逻辑拆分。此次例外不构成未来授权。
+- 上述禁止仅针对已推送历史，不额外禁止正常整理尚未推送的本地提交。
 - 本规则不额外规定提交消息的语言、标题格式或拆分粒度。
 
 仓库级配置命令：
