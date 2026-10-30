@@ -1,0 +1,15 @@
+{
+  "name": "@wisp/host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.4.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@playwright/mcp": "0.0.83",
+    "@wisp/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/* --external:@modelcontextprotocol/sdk/* --outfile=dist/main.js"
+  }
+}
