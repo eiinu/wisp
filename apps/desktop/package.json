@@ -1,0 +1,15 @@
+{
+  "name": "@wisp/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@wisp/core": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/main.js && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs && vite build",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
+  }
+}
