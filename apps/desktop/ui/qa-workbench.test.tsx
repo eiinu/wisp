@@ -49,3 +49,19 @@ it('tab action fixture uses same-session live tickets, explicit approval and mem
  await expect(bridge.request({type:'preview.action.execute',sessionId:'conversation-fixture',ticket})).rejects.toThrow('重复');await bridge.request({type:'preview.action.complete',sessionId:'conversation-fixture',ticket,applied:true});
  expect((await bridge.request({type:'snapshot'})).snapshot?.sessions[0].activeRunId).toBeUndefined();
 });
+it('settles the original QA run when switching away during approval or delivery, without replay',async()=>{
+ for(const duringApproval of [true,false]){
+  const bridge=fixture(10,false,'preview_tab_action');let ticket='',delivered=0;
+  bridge.subscribe(n=>{if(n.type==='preview.tabs')void(async()=>{await bridge.request({type:'preview.tabs.claim',sessionId:n.sessionId,ticket:n.ticket});await bridge.request({type:'preview.tabs.complete',sessionId:n.sessionId,ticket:n.ticket,tabs:[{id:'web',kind:'web',title:'Example',url:'https://example.com/',active:true}]});})();if(n.type==='preview.action'){ticket=n.ticket;delivered++;}});
+  const tabs=await bridge.inspectTabs();await bridge.beginAction(tabs[0].tabId,'close');const runId=(await bridge.request({type:'snapshot'})).snapshot!.sessions[0].activeRunId!;
+  const approving=bridge.request({...decision,runId,callId:'qa-tab-action'});
+  if(!duringApproval){await approving;await bridge.request({type:'preview.action.claim',sessionId:'conversation-fixture',ticket});}
+  await bridge.request({type:'session.select',sessionId:'empty-fixture'});await approving;
+  await bridge.request({type:'session.select',sessionId:'conversation-fixture'});
+  const state=(await bridge.request({type:'snapshot'})).snapshot!,events=state.events.filter(e=>e.runId===runId);
+  expect(state.sessions[0].activeRunId).toBeUndefined();expect(events.filter(e=>e.type==='completed')).toHaveLength(1);
+  expect(events.filter(e=>e.type==='tool_result')).toHaveLength(1);expect(events.find(e=>e.type==='tool_result')?.data).toMatchObject({isError:true,text:expect.stringContaining('会话已切换')});
+  expect(events.every(e=>e.sessionId==='conversation-fixture')).toBe(true);expect(delivered).toBe(duringApproval?0:1);
+  await expect(bridge.request({type:'preview.action.execute',sessionId:'conversation-fixture',ticket})).rejects.toThrow('失效');
+ }
+});

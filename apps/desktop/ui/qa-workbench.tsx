@@ -74,7 +74,8 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   });
 
   let tabAction:{sessionId:string;runId:string;ticket:string;tab:PreviewTabMetadata;action:PreviewTabAction;claimed:boolean;executed:boolean;approved:boolean}|undefined;
-  const endAction=(text:string,isError=false,denied=false)=>{const p=tabAction;if(!p)return;state.events.push(event(crypto.randomUUID(),p.runId,'tool_result',{callId:'qa-tab-action',text,isError,denied},p.sessionId),event(crypto.randomUUID(),p.runId,'completed',{},p.sessionId));const session=state.sessions.find(s=>s.id===p.sessionId);if(session)delete session.activeRunId;tabAction=undefined;changed();};
+  let actionTimer:ReturnType<typeof setTimeout>|undefined;
+  const endAction=(text:string,isError=false,denied=false)=>{const p=tabAction;if(!p)return;clearTimeout(actionTimer);actionTimer=undefined;listeners.forEach(l=>l({type:'preview.action.cancel',sessionId:p.sessionId,ticket:p.ticket}));state.events.push(event(crypto.randomUUID(),p.runId,'tool_result',{callId:'qa-tab-action',text,isError,denied},p.sessionId),event(crypto.randomUUID(),p.runId,'completed',{},p.sessionId));const session=state.sessions.find(s=>s.id===p.sessionId);if(session)delete session.activeRunId;tabAction=undefined;changed();};
   return {
     async inspectTabs(){
       const sessionId=state.selectedId!;const rows=await queryTabs(sessionId);
@@ -109,13 +110,14 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     async request(input:Request):Promise<Result>{
-      if(input.type==='run.cancel'&&tabAction?.runId===input.runId){const p=tabAction;listeners.forEach(l=>l({type:'preview.action.cancel',sessionId:p.sessionId,ticket:p.ticket}));endAction('QA 已取消',true);return{};}
+      if(input.type==='run.cancel'&&tabAction?.runId===input.runId){endAction('QA 已取消',true);return{};}
       if(input.type==='run.approve'&&input.callId==='qa-tab-action'){
         const p=tabAction;if(!p||p.approved||input.sessionId!==p.sessionId||input.runId!==p.runId)throw new Error('样例审批已失效');p.approved=true;
         await new Promise(r=>setTimeout(r,approvalDelay));if(tabAction!==p)return{};
         state.events.push(event(crypto.randomUUID(),p.runId,'approval_resolved',{callId:'qa-tab-action',allowed:input.allowed},p.sessionId));
         if(!input.allowed){endAction('QA 已拒绝；没有操作标签',false,true);return{};}
         state.events.push(event(crypto.randomUUID(),p.runId,'tool_started',{callId:'qa-tab-action',name:'preview_tab_action'},p.sessionId));changed();
+        actionTimer=setTimeout(()=>{if(tabAction===p)endAction('QA：标签操作确认超时，状态未知；请重新获取标签状态',true);},10000);
         listeners.forEach(l=>l({type:'preview.action',sessionId:p.sessionId,ticket:p.ticket}));return{};
       }
       if(input.type==='preview.action.claim'||input.type==='preview.action.execute'||input.type==='preview.action.complete'){
@@ -158,7 +160,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         changed();return{};
       }
 
-      if(input.type==='session.select'){state.selectedId=input.sessionId;changed();return{};}
+      if(input.type==='session.select'){state.selectedId=input.sessionId;if(tabAction&&tabAction.sessionId!==input.sessionId)endAction('QA：会话已切换，标签操作已取消；请重新获取标签列表',true);changed();return{};}
       if(input.type==='preview.claim'){if(!previewResolve||previewClaimed||input.ticket!==ticket||input.sessionId!==state.selectedId)throw new Error('样例请求已失效');previewClaimed=true;return{preview:{ticket,url:'https://example.com/'}};}
       if(input.type==='preview.complete'){if(!previewResolve||!previewClaimed||input.ticket!==ticket)throw new Error('样例请求已失效');const done=previewResolve;previewResolve=undefined;done(input.accepted);return{};}
       if(input.type==='files.read' || input.type==='files.list') {

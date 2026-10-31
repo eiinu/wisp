@@ -42,3 +42,11 @@ it('rejects wrong types, unknown IDs, changed approvals, session switches, cance
 it('does not treat missing UI acknowledgement as success or retry on timeout',async()=>{
  const s=setup(10),list=await s.list(),p=await s.tool.prepare!({tabId:list[3].tabId,action:'close'},signal);await expect(p.execute(signal)).rejects.toThrow('超时');expect(()=>s.actions.claim('s',s.ticket())).toThrow('失效');
 });
+it('expires a production action after switching sessions even when UI completion is rejected',async()=>{
+ const s=setup(100),list=await s.list(),p=await s.tool.prepare!({tabId:list[0].tabId,action:'close'},signal);
+ const running=p.execute(signal),failed=expect(running).rejects.toThrow('超时');
+ await vi.waitFor(()=>expect(s.notices.some(n=>n.type==='preview.action')).toBe(true));const ticket=s.ticket();s.actions.claim('s',ticket);s.setSelected('other');
+ expect(()=>s.actions.complete('s',ticket,false)).toThrow();await failed;s.setSelected('s');
+ expect(()=>s.actions.claim('s',ticket)).toThrow('失效');expect(s.desktop.call.mock.calls.some(c=>c[0]==='page.action')).toBe(false);
+ expect(s.notices.some(n=>n.type==='preview.action.cancel')).toBe(true);
+});
