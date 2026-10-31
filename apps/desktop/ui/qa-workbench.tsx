@@ -138,7 +138,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
             state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{step,callId,name,text:JSON.stringify({simulated:true,id:'qa-setup-service',state:'disabled',installed:basic==='mcp_install_npm',message:'仅内存模拟；没有实际安装或注册。下一步需要单独批准激活。'})}));
             state.events.push(event(crypto.randomUUID(),'approval-fixture','assistant',{step:1,text:'QA 内存样例：配置保持禁用。下面单独演示激活审批；如服务需要密钥，应只在设置的环境变量表单填写。'}));
             state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_requested',{step:1,id:'activation-fixture',name:'mcp_activate_service',args:{id:'qa-setup-service'}}));
-            state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_requested',{step:1,id:'activation-fixture',name:'mcp_activate_service',args:{id:'qa-setup-service'},description:'仅 QA 模拟激活，不执行进程。真实操作会启动已确认的本地命令并检查协议与工具列表；第三方程序拥有本机权限，不受项目目录约束。'}));
+            state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_requested',{step:1,id:'activation-fixture',name:'mcp_activate_service',args:{id:'qa-setup-service'},description:`仅 QA 模拟激活，不执行进程。\n信任并启动本机 MCP「${state.mcpServers[0].name}」\n命令：${state.mcpServers[0].command}\n参数：${JSON.stringify(state.mcpServers[0].args)}\n目录：${state.mcpServers[0].cwd??'用户主目录'}\n环境变量名称：${state.mcpServers[0].envNames.join('、')||'无'}\n真实操作将以本机权限启动该程序，不受项目目录沙箱约束；连接后发现工具，每次第三方工具调用仍需审批。配置变化后旧审批不能执行。`}));
             setupActivation=true;approvalPending=false;changed();return{};
           }
           if(input.allowed&&state.mcpServers?.[0]){state.mcpServers[0].state='connected';state.mcpServers[0].tools=[{name:'mcp_qa_echo',remoteName:'echo',description:'仅 QA 内存工具'}];}

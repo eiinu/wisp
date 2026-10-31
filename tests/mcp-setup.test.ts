@@ -49,7 +49,11 @@ it('registers existing executables once and invalidates activation after hidden 
  const f=await setup();const config={name:'Existing',command:process.execPath,args:[resolve('scripts/fixtures/mcp-stdio.mjs')]};
  const result=JSON.parse(await(await f.tool('mcp_register').prepare!(config,signal())).execute(signal()));expect(result.installed).toBe(false);
  expect(JSON.parse(await(await f.tool('mcp_register').prepare!(config,signal())).execute(signal())).alreadyConfigured).toBe(true);
- const approval=await f.tool('mcp_activate_service').prepare!({id:result.id},signal());await f.mcp.save(result.id,{...config,command:await realpath(process.execPath)},{FAKE:'test-only'},false);
+ await f.mcp.save(result.id,{...config,command:await realpath(process.execPath)},{FAKE:'test-only'},false);
+ const approval=await f.tool('mcp_activate_service').prepare!({id:result.id},signal());
+ for(const detail of [config.name,await realpath(process.execPath),JSON.stringify(config.args),'目录：用户主目录','环境变量名称：FAKE','不受项目目录沙箱约束'])expect(approval.description).toContain(detail);
+ expect(approval.description).not.toContain('test-only');
+ await f.mcp.save(result.id,{...config,command:await realpath(process.execPath)},{FAKE:'changed-private'},false);
  await expect(approval.execute(signal())).rejects.toThrow('配置已变化');expect(f.mcp.snapshot()[0]?.state).toBe('disabled');
  expect(await f.tool('mcp_list_services').execute({},signal())).not.toContain('test-only');
 });

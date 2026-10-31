@@ -21,6 +21,8 @@ it('keeps simulated MCP setup disabled until a separate activation approval and 
  for(const tool of ['mcp_install_npm','mcp_register']){
   const bridge=fixture(25,false,tool);const start=bridge.request(decision);await expect(bridge.request(decision)).rejects.toThrow('待审批');await start;
   let state=(await bridge.request({type:'snapshot'})).snapshot!;expect(state.mcpServers?.[0]?.state).toBe('disabled');expect(state.events.findLast(e=>e.type==='approval_requested')?.data.name).toBe('mcp_activate_service');
+  const description=String(state.events.findLast(e=>e.type==='approval_requested')?.data.description),service=state.mcpServers![0];
+  for(const detail of [service.name,service.command,JSON.stringify(service.args),'目录：用户主目录','环境变量名称：无','不受项目目录沙箱约束'])expect(description).toContain(detail);
   await expect(bridge.request(decision)).rejects.toThrow('待审批');await bridge.request({...decision,callId:'activation-fixture',allowed:false});state=(await bridge.request({type:'snapshot'})).snapshot!;
   expect(state.mcpServers?.[0]?.state).toBe('disabled');expect(state.events.findLast(e=>e.type==='tool_result')?.data.denied).toBe(true);
  }
