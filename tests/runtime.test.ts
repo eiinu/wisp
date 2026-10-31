@@ -83,12 +83,13 @@ it('requires a configured model and does not silently fall back to mock', async 
   await expect(runtime.request({ type: 'run.start', sessionId: id, prompt: 'hi', maxSteps: 2 })).rejects.toThrow('配置模型');
   expect(runtime.snapshot().events).toHaveLength(0);
 });
-it('retries a failed task after its cause is fixed without crossing session context', async () => {
+it('feeds a file failure back to the model and accepts a corrected follow-up in the same session', async () => {
   const { runtime, id, work } = await setup();
   await runtime.request({ type: 'run.start', sessionId: id, prompt: '读取 missing.txt', maxSteps: 3 });
-  await event(runtime, id, 'failed'); await new Promise(r => setTimeout(r, 30));
+  await idle(runtime, id);
+  expect(runtime.snapshot().events.some(e => e.type === 'tool_result' && e.data.isError)).toBe(true);
   await writeFile(join(work, 'missing.txt'), 'fixed');
-  await runtime.request({ type: 'run.retry', sessionId: id }); await idle(runtime, id);
+  await runtime.request({ type: 'run.start', sessionId: id, prompt: '读取 missing.txt', maxSteps: 3 }); await idle(runtime, id);
   expect(runtime.snapshot().events.filter(e => e.type === 'started')).toHaveLength(2);
   expect(runtime.snapshot().events.some(e => e.type === 'tool_result' && e.data.text === 'fixed')).toBe(true);
 });

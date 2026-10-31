@@ -7,7 +7,7 @@ export const offlineProvider: GenerationProvider = {
     const lastUser = messages.findLastIndex(m => m.role === 'user');
     const current = messages.slice(lastUser), result = current.findLast(m => m.role === 'tool');
     let reply: ModelReply;
-    if (result) reply = { text: result.isError ? '操作已拒绝，未执行写入。' : `离线验证完成。以下是 Host 的实际返回：\n\n${result.text}` };
+    if (result) reply = { text: result.isError ? `工具返回错误或拒绝：${result.text}` : `离线验证完成。以下是 Host 的实际返回：\n\n${result.text}` };
     else {
       const prompt = current[0].text;
       const write = /^写入 ([^\n]+)\n([\s\S]*)$/.exec(prompt), read = /^读取 (.+)$/.exec(prompt);

@@ -23,6 +23,10 @@ export async function registerMcpTools(client: Client, namespace: string, regist
       registry.register(name, {
         name, description: spec.description ?? spec.name, inputSchema,
         requiresApproval: true,
+        validate(args) {
+          for (const omitted of policy.omitParameters ?? []) if (Object.hasOwn(args, omitted)) throw new Error(`Unsupported MCP argument: ${omitted}`);
+          policy.validate?.(spec.name, args);
+        },
         async execute(args, signal) {
           signal.throwIfAborted();
           const approved = structuredClone(args);

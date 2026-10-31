@@ -77,10 +77,17 @@ export class WorkspaceFiles {
   tools(): Tool[] {
     const schema = { type: 'object', properties: { path: { type: 'string' } }, required: ['path'], additionalProperties: false };
     const pathArg = (args: Record<string, unknown>) => { if (typeof args.path !== 'string') throw new Error('path 必须是字符串'); return args.path; };
+    const validate = async (args: Record<string, unknown>, write = false) => {
+      if (!args || Array.isArray(args) || Object.keys(args).some(key => !['path', ...(write ? ['content'] : [])].includes(key))) throw new Error('包含不支持的工具参数');
+      const path = pathArg(args);
+      if (path.length > 4096) throw new Error('路径过长');
+      if (write && (typeof args.content !== 'string' || Buffer.byteLength(args.content) > 200000)) throw new Error('content 必须是最多 200000 字节的文本');
+      await this.resolve(path, write);
+    };
     return [
-      { name: 'files_list', description: '列出已授权工作目录中的文件。path 为空字符串表示根目录。', inputSchema: schema, requiresApproval: false, execute: async (args, signal) => { signal.throwIfAborted(); return JSON.stringify(await this.list(pathArg(args))); } },
-      { name: 'files_read', description: '读取已授权目录中的文本文件（最多 2 MB）；不支持模型图片输入。', inputSchema: schema, requiresApproval: false, execute: async (args, signal) => { signal.throwIfAborted(); const file = await this.read(pathArg(args)); if (file.text === undefined) throw new Error('工具仅支持文本内容'); return file.text.length > 32000 ? file.text.slice(0, 32000) + '\n[工具结果已截断至 32000 字符；可在文件面板查看完整预览]' : file.text; } },
-      { name: 'files_write', description: '创建或覆盖授权目录内的文本文件；每次写入须由用户明确批准完整内容。', inputSchema: { ...schema, properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] }, requiresApproval: true, execute: async (args, signal) => { if (typeof args.content !== 'string') throw new Error('content 必须是字符串'); return this.write(pathArg(args), args.content, signal); } },
+      { name: 'files_list', description: '列出已授权工作目录中的文件。path 为空字符串表示根目录。', inputSchema: schema, requiresApproval: false, validate: args => validate(args), execute: async (args, signal) => { signal.throwIfAborted(); return JSON.stringify(await this.list(pathArg(args))); } },
+      { name: 'files_read', description: '读取已授权目录中的文本文件（最多 2 MB）；不支持模型图片输入。', inputSchema: schema, requiresApproval: false, validate: args => validate(args), execute: async (args, signal) => { signal.throwIfAborted(); const file = await this.read(pathArg(args)); if (file.text === undefined) throw new Error('工具仅支持文本内容'); return file.text.length > 32000 ? file.text.slice(0, 32000) + '\n[工具结果已截断至 32000 字符；可在文件面板查看完整预览]' : file.text; } },
+      { name: 'files_write', description: '创建或覆盖授权目录内的文本文件；每次写入须由用户明确批准完整内容。', inputSchema: { ...schema, properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] }, requiresApproval: true, validate: args => validate(args, true), execute: async (args, signal) => { if (typeof args.content !== 'string') throw new Error('content 必须是字符串'); return this.write(pathArg(args), args.content, signal); } },
     ];
   }
 }

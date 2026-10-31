@@ -36,6 +36,18 @@ it('validates the shared Web HTTP boundary with simulator, approvals, cancellati
     await api({ type: 'session.select', sessionId: second }); await host.close(); await runtime.shutdown(); runtime = new Runtime(join(root, 'host'), undefined, undefined, development); await runtime.init(); host = await serveWorkbench(runtime, resolve('apps/desktop/web-preview-dist'), 'fake-web-token', 0);
     expect((await snapshot()).selectedId).toBe(second); expect((await snapshot()).events.filter(e => e.sessionId === second)).toHaveLength(0);
     await api({ type: 'session.select', sessionId: first }); const read = await run('read'); await finish(read); expect((await snapshot()).events.some(e => e.runId === read && e.type === 'tool_result' && e.data.text === 'fixture real file')).toBe(true);
+    const multi = await run('multi'); await finish(multi);
+    const multiResults = (await snapshot()).events.filter(e => e.runId === multi && e.type === 'tool_result');
+    expect(multiResults).toHaveLength(2); expect(new Set(multiResults.map(e => e.data.callId)).size).toBe(2);
+    for (const scenario of ['escape', 'invalid']) {
+      const id = await run(scenario); await finish(id);
+      const events = (await snapshot()).events.filter(e => e.runId === id);
+      expect(events.some(e => e.type === 'tool_result' && e.data.isError)).toBe(true);
+      expect(events.some(e => e.type === 'approval_requested' || e.type === 'tool_started')).toBe(false);
+    }
+    await expect(readFile(join(workspace, 'invalid.txt'))).rejects.toThrow();
+    const loop = await run('loop'); await finish(loop, 'failed');
+    expect((await snapshot()).events.filter(e => e.runId === loop && e.type === 'tool_result')).toHaveLength(4);
     expect(JSON.stringify(await snapshot())).not.toContain('开发模拟推理');
   } finally { await host.close(); await runtime.shutdown(); await simulator.close(); await rm(root, { recursive: true, force: true }); }
 });

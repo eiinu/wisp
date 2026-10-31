@@ -15,7 +15,7 @@ export class Agent {
   get activeRunId() { return this.active?.id; }
   approve(runId: string, callId: string, allowed: boolean) {
     if (!this.pending || this.pending.runId !== runId || this.pending.callId !== callId) throw new Error('No matching pending approval');
-    this.pending.resolve(allowed);
+    const pending = this.pending; this.pending = undefined; pending.resolve(allowed);
   }
   cancel(runId: string) { if (this.active?.id === runId) this.active.controller.abort(); }
   async run(prompt: string, maxSteps = 6, history: Message[] = []) {
@@ -68,17 +68,33 @@ export class Agent {
         if (reply.text) await emit('assistant', { text: reply.text, step });
         if (!calls.length) { await emit('completed'); return; }
         if (calls.length > 8) throw new Error('Too many tool calls in one step');
+        // Reject ambiguous batches before any side effect or approval can occur.
         for (const call of calls) {
-          signal.throwIfAborted();
           if (!call.id || callIds.has(call.id)) throw new Error('Tool call IDs must be unique within a run');
           callIds.add(call.id);
-          const tool = this.tools.get(call.name);
-          const execute = tool.execute.bind(tool), requiresApproval = tool.requiresApproval;
+        }
+        for (const call of calls) {
+          signal.throwIfAborted();
+
           // No mutable provider-owned object is retained across the approval wait.
           const freeze = (value: unknown): void => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } };
           freeze(call);
           await emit('tool_requested', { ...call });
-          if (requiresApproval) {
+          let tool: Tool;
+          try {
+            tool = this.tools.get(call.name);
+            await tool.validate?.(call.args);
+            signal.throwIfAborted();
+          } catch (error) {
+            signal.throwIfAborted();
+            const text = JSON.stringify({ error: 'invalid_tool_request', message: this.redact(error instanceof Error ? error.message : 'Invalid tool request') });
+            messages.push({ role: 'tool', text, callId: call.id, toolName: call.name, isError: true });
+            await this.checkpoint?.(messages);
+            await emit('tool_result', { callId: call.id, name: call.name, text, isError: true });
+            continue;
+          }
+          const execute = tool.execute.bind(tool);
+          if (tool.requiresApproval) {
             const decision = new Promise<boolean>(resolve => { this.pending = { runId: id, callId: call.id, resolve }; });
             await emit('approval_requested', { ...call, description: tool.description });
             let allowed: boolean;
@@ -92,10 +108,16 @@ export class Agent {
             }
           }
           signal.throwIfAborted();
-          const text = await abortable(execute(call.args, signal), signal);
-          messages.push({ role: 'tool', text, callId: call.id, toolName: call.name });
+          await emit('tool_started', { callId: call.id, name: call.name });
+          let text: string, isError = false;
+          try { text = await abortable(execute(call.args, signal), signal); signal.throwIfAborted(); }
+          catch (error) {
+            signal.throwIfAborted(); isError = true;
+            text = JSON.stringify({ error: 'tool_execution_failed', message: this.redact(error instanceof Error ? error.message : 'Tool execution failed') });
+          }
+          messages.push({ role: 'tool', text, callId: call.id, toolName: call.name, isError });
           await this.checkpoint?.(messages);
-          await emit('tool_result', { callId: call.id, text });
+          await emit('tool_result', { callId: call.id, name: call.name, text, isError });
         }
       }
       await emit('failed', { reason: 'Step budget exhausted' });

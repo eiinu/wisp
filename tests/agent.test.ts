@@ -97,3 +97,25 @@ it('binds approval to copied arguments and never exposes live tool implementatio
   expect(execute).toHaveBeenCalledWith({ text: 'approved content' }, expect.any(AbortSignal));
   expect(events.find(e => e.type === 'tool_result')?.data.text).toBe('approved content'); expect(echoTool.inputSchema.type).toBe('object');
 });
+
+it('returns invalid requests and execution failures to the model and completes the remaining calls', async () => {
+  const execute = vi.fn(async (args: Record<string, unknown>) => { if (args.text === 'fail') throw new Error('read unavailable'); return 'ok'; });
+  const provider: GenerationProvider = { generate: async messages => {
+    const results = messages.filter(m => m.role === 'tool');
+    if (results.length) { expect(results.map(m => [m.callId, !!m.isError])).toEqual([['a', true], ['b', true], ['c', true], ['d', false]]); return { text: 'Handled results' }; }
+    return { text: '', calls: [{ id:'a', name:'missing', args:{} }, { id:'b', name:'demo.echo', args:{} }, { id:'c', name:'demo.echo', args:{text:'fail'} }, { id:'d', name:'demo.echo', args:{text:'ok'} }] };
+  } };
+  const { agent, events } = await setup(provider, { ...echoTool, requiresApproval:false, execute, validate(args) { if (typeof args.text !== 'string') throw new Error('text required'); } });
+  await agent.run('test'); expect(execute).toHaveBeenCalledTimes(2); expect(events.filter(e => e.type === 'tool_result')).toHaveLength(4); expect(events.at(-1)?.type).toBe('completed');
+});
+it('consumes an approval immediately and rejects a duplicate decision', async () => {
+  const { agent, events } = await setup(); const run = agent.run('hello'); const request = await pending(events);
+  agent.approve(request.runId, String(request.data.id), true);
+  expect(() => agent.approve(request.runId, String(request.data.id), true)).toThrow('pending');
+  await run; expect(events.filter(e => e.type === 'tool_started')).toHaveLength(1);
+});
+it('rejects duplicate IDs in one batch before executing either tool', async () => {
+  const execute = vi.fn(echoTool.execute);
+  const {agent, events} = await setup({generate: async () => ({text:'',calls:[{id:'dup',name:'demo.echo',args:{text:'a'}},{id:'dup',name:'demo.echo',args:{text:'b'}}]})}, {...echoTool,requiresApproval:false,execute});
+  await agent.run('test'); expect(execute).not.toHaveBeenCalled(); expect(events.at(-1)?.type).toBe('failed');
+});
