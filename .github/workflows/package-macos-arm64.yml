@@ -34,20 +34,17 @@ jobs:
         run: |
           pnpm typecheck
           pnpm test
-      - name: Build DMG and ZIP (ad-hoc signed, not notarized)
+      - name: Build DMG (ad-hoc signed, not notarized)
         run: pnpm package:mac
       - name: Verify packaged Host and MCP with bundled Electron
         run: node scripts/verify-package.mjs release/mac-arm64/Wisp.app/Contents/Resources/app release/mac-arm64/Wisp.app/Contents/MacOS/Wisp arm64
-      - name: Record build identity and checksums
+      - name: Record build identity and checksum in summary
+        id: package
         run: node scripts/package-manifest.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: Wisp-macos-arm64-${{ github.run_number }}-${{ github.sha }}
-          path: |
-            release/Wisp-*-arm64.dmg
-            release/Wisp-*-arm64.zip
-            release/SHA256SUMS.txt
-            release/build-info.json
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.dmg_path }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

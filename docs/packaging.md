@@ -5,18 +5,15 @@
 1. 将需要打包的代码提交并推送到 GitHub。
 2. 打开仓库 **Actions → Build macOS arm64 → Run workflow**。
 3. 选择要构建的分支，点击 **Run workflow**。工作流按触发时的具体 commit SHA checkout，不追随构建期间移动的分支。
-4. 成功后打开该运行的 **Artifacts**，下载 `Wisp-macos-arm64-运行序号-提交SHA`，解压后获取安装包。
+4. 成功后打开该运行的 **Artifacts**，下载 `Wisp-macos-arm64-YYYYMMDDHHmm`，解压后获取唯一的 DMG 安装包。GitHub Actions 下载时仍会将 artifact 包装成 ZIP；这不是另一份应用 ZIP 安装产物。
 
 工作流只响应 `workflow_dispatch`；push、PR、tag 均不会自动构建。它生成 Actions 下载产物，**不创建 GitHub Release、不创建 tag，也不发布到其他服务**。Artifact 保留 14 天；手动运行可能消耗 GitHub 账户的 Actions 配额。
 
-版本取根 `package.json` 的 `version`，当前为 `0.1.0`。发布新版本时修改该字段并正常提交。一个 artifact 包含：
+安装产物只有 `Wisp-macos-arm64-YYYYMMDDHHmm.dmg`，例如 `Wisp-macos-arm64-202610311146.dmg`。时间取实际检出提交的 **committer timestamp**，固定转换为 **Asia/Shanghai（UTC+08）**，精确到分钟；不是作者时间、构建开始时间或 runner 本地时间。同一提交重跑文件名一致，不同提交在同一分钟可能同名，可通过各自运行摘要中的完整 SHA 区分。
 
-- `Wisp-0.1.0-arm64.dmg`
-- `Wisp-0.1.0-arm64.zip`（内含 Wisp.app）
-- `SHA256SUMS.txt`
-- `build-info.json`（版本、源码 SHA、架构、签名状态）
+应用内部版本仍取根 `package.json` 的 `version`，当前为 `0.1.0`。完整源码 SHA、提交时间、版本、签名状态和 DMG SHA-256 写入运行页面的 Job summary，不作为独立附件上传。Artifact 中只包含 DMG。
 
-DMG 与 ZIP 都仅支持 Apple Silicon arm64，不是 Intel 或 universal 包。当前使用默认 Electron 图标，未配置不存在的自定义资源。
+DMG 仅支持 Apple Silicon arm64，不是 Intel 或 universal 包。当前使用默认 Electron 图标，未配置不存在的自定义资源。
 
 ## 本机打包
 
@@ -53,7 +50,7 @@ node scripts/package-manifest.mjs
 
 当前是**无 Developer ID 证书、未公证的测试构建**。为支持 Apple Silicon，使用不需要证书的 ad-hoc 签名（identity `-`）；DMG 不签名。这不会建立 Apple 认可的开发者身份，Gatekeeper 可能阻止从互联网下载的应用。仅从可信来源获取并核对校验值，按 macOS 针对单个应用的官方许可流程处理；不要关闭 Gatekeeper、SIP 或浏览器沙箱。
 
-系统 Key 存储继续由 Electron safeStorage 管理。未正式签名或签名身份变化的构建在 macOS 上可能再次请求钥匙串许可。真实钥匙串访问、安装后的 GUI、下载隔离标记/Gatekeeper，以及首次 macOS arm64 DMG/ZIP 构建仍需在 Mac 和手动 Actions 运行中确认；Linux 结构/Host 验证不能替代这些验收。
+系统 Key 存储继续由 Electron safeStorage 管理。未正式签名或签名身份变化的构建在 macOS 上可能再次请求钥匙串许可。真实钥匙串访问、安装后的 GUI、下载隔离标记/Gatekeeper，仍需在 Mac 上确认；更新后的单 DMG 命名流程需首次手动 Actions 构建确认；Linux 结构/Host 验证不能替代这些验收。
 
 正式分发需要另行配置 Developer ID 签名与 Apple 公证。应通过 GitHub Secrets 提供签名材料，并调整工作流/签名配置；不要把证书、私钥、口令或 API Key 写入仓库。当前工作流不读取此类 secrets，也不会自动尝试公证。
 

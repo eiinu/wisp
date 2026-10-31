@@ -1,11 +1,11 @@
-import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { readFile, appendFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import assert from 'node:assert/strict';
+import { packageIdentity } from './package-identity.mjs';
+
 const { version } = JSON.parse(await readFile('package.json', 'utf8'));
-assert(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version), 'Invalid package version');
-const names = [`Wisp-${version}-arm64.dmg`, `Wisp-${version}-arm64.zip`];
-const files = await readdir('release'); for (const name of names) assert(files.includes(name), `Missing ${name}`);
-const sums = await Promise.all(names.map(async name => `${createHash('sha256').update(await readFile(`release/${name}`)).digest('hex')}  ${name}`));
-await writeFile('release/SHA256SUMS.txt', sums.join('\n') + '\n');
-await writeFile('release/build-info.json', JSON.stringify({ version, commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), architecture: 'arm64', platform: 'darwin', signing: 'ad-hoc; no Developer ID; not notarized', node: process.version, artifacts: names }, null, 2) + '\n');
+const { commit, committedAt, timestamp, artifactName, dmgPath } = packageIdentity();
+const checksum = createHash('sha256').update(await readFile(dmgPath)).digest('hex');
+const summary = `## Wisp macOS arm64\n\n- DMG: \`${artifactName}.dmg\`\n- Commit: \`${commit}\`\n- Committer timestamp: \`${committedAt}\`\n- Filename time: \`${timestamp}\` (Asia/Shanghai, UTC+08)\n- App version: \`${version}\`\n- Signing: ad-hoc; no Developer ID; not notarized\n- SHA-256: \`${checksum}\`\n\nDownload the artifact below; GitHub wraps the single DMG in a ZIP archive.\n`;
+console.log(summary);
+if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, summary);
+if (process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `artifact_name=${artifactName}\ndmg_path=${dmgPath}\n`);

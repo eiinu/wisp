@@ -16,7 +16,7 @@
     "web:dev": "pnpm --filter @wisp/desktop dev",
     "web:simulate": "pnpm web:build && pnpm simulate:build && node apps/host/dist/dev.js",
     "simulate:build": "esbuild apps/host/src/dev/main.ts --bundle --platform=node --format=esm --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/* --external:@modelcontextprotocol/sdk/* --outfile=apps/host/dist/dev.js",
-    "package:mac": "pnpm build && electron-builder --config electron-builder.yml --mac dmg zip --arm64 --publish never",
+    "package:mac": "pnpm build && node scripts/package-macos.mjs",
     "package:dir": "pnpm build && electron-builder --config electron-builder.yml --dir --publish never",
     "package:verify": "node scripts/verify-package.mjs"
   },

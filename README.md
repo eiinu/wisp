@@ -23,7 +23,7 @@ pnpm web
 
 ## macOS 安装包
 
-在 GitHub Actions 中选择 **Build macOS arm64 → Run workflow**，手动生成 Apple Silicon 的 DMG 和 ZIP。版本取根 `package.json`，产物从该运行的 Artifacts 下载；不会自动创建 Release。当前为无 Developer ID、未公证的测试构建。详见 [打包与下载说明](docs/packaging.md)。
+在 GitHub Actions 中选择 **Build macOS arm64 → Run workflow**，手动生成单个 Apple Silicon arm64 DMG。文件名按提交时间（北京时间）命名，例如 `Wisp-macos-arm64-202610311146.dmg`，产物从该运行的 Artifacts 下载；不会自动创建 Release。当前为无 Developer ID、未公证的测试构建。详见 [打包与下载说明](docs/packaging.md)。
 
 ## 实际使用流程
 
