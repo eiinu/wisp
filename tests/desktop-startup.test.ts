@@ -47,3 +47,11 @@ it('reports a failed page load and quits instead of silently leaving startup pen
   await vi.waitFor(() => expect(mocks.showErrorBox).toHaveBeenCalledWith('Wisp 启动失败', expect.any(String)));
   expect(mocks.app.quit).toHaveBeenCalledOnce();
 });
+
+it('notifies the renderer when Host becomes ready so an initial snapshot can recover', async () => {
+  await import('../apps/desktop/src/main.js'); mocks.ready();
+  await vi.waitFor(() => expect(mocks.window.loadURL).toHaveBeenCalledOnce());
+  const messageHandler = mocks.host.on.mock.calls.find(([event]) => event === 'message')?.[1];
+  await messageHandler({type: 'host-ready'});
+  expect(mocks.window.webContents.send).toHaveBeenCalledWith('wisp:notice', {type: 'changed'});
+});

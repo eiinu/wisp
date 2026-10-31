@@ -52,7 +52,9 @@ node scripts/package-manifest.mjs
 
 当前是**无 Developer ID 证书、未公证的测试构建**。为支持 Apple Silicon，使用不需要证书的 ad-hoc 签名（identity `-`）；DMG 不签名。这不会建立 Apple 认可的开发者身份，Gatekeeper 可能阻止从互联网下载的应用。仅从可信来源获取并核对校验值，按 macOS 针对单个应用的官方许可流程处理；不要关闭 Gatekeeper、SIP 或浏览器沙箱。
 
-系统 Key 存储继续由 Electron safeStorage 管理。未正式签名或签名身份变化的构建在 macOS 上可能再次请求钥匙串许可。真实钥匙串访问、安装后的 GUI、下载隔离标记/Gatekeeper，仍需在 Mac 上确认；更新后的单 DMG 命名流程需首次手动 Actions 构建确认；Linux 结构/Host 验证不能替代这些验收。
+系统 Key 存储继续由 Electron safeStorage 管理。macOS 空白配置启动只报告支持安全存储，不执行会触发钥匙串的能力探测；不存在已保存密文时不会调用 safeStorage。用户选择安全保存或启动时读取已有密文，才使用 Electron 45 的异步安全存储 API，避免授权弹窗阻塞主线程。异步读取兼容此前同步 API 生成的密文；拒绝授权不会改为明文保存。Host 在初始化期间接收业务 IPC 并等待初始化完成后处理，ready 通知会让 UI 再次刷新快照。
+
+未正式签名或签名身份变化的构建在 macOS 上可能再次请求钥匙串许可。真实钥匙串访问、安装后的 GUI、下载隔离标记/Gatekeeper，仍需在 Mac 上确认；更新后的单 DMG 命名流程需首次手动 Actions 构建确认；Linux 结构/Host 验证不能替代这些验收。
 
 正式分发需要另行配置 Developer ID 签名与 Apple 公证。应通过 GitHub Secrets 提供签名材料，并调整工作流/签名配置；不要把证书、私钥、口令或 API Key 写入仓库。当前工作流不读取此类 secrets，也不会自动尝试公证。
 

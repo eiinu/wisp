@@ -28,6 +28,8 @@ async function startDesktop() {
   ipcMain.handle('wisp:open-url', async (event, input: unknown) => { trusted(event); if (typeof input !== 'string' || input.length > 4096) throw new Error('Invalid URL'); const url = new URL(input); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Only web URLs are allowed'); await shell.openExternal(url.href); });
   ipcMain.handle('wisp:choose-directory', async event => { trusted(event); const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] }); return result.canceled ? undefined : result.filePaths[0]; });
   host.on('message', async (message: any) => {
+    // Recheck the initial snapshot if it timed out while secure storage initialized.
+    if (message?.type === 'host-ready') { if (!window.isDestroyed()) window.webContents.send('wisp:notice', { type: 'changed' }); return; }
     if (message?.type === 'credential-request' && typeof message.id === 'string') {
       try { let value: unknown; if (message.operation === 'available') value = await vault.available(); else if (message.operation === 'load') value = await vault.load(); else if (message.operation === 'delete') await vault.delete(); else if (message.operation === 'save' && typeof message.key === 'string' && message.key.length <= 4096) await vault.save(message.key); else throw new Error('Invalid credential operation'); if (host.connected) host.send({ type: 'credential-response', id: message.id, ok: true, value }); }
       catch { if (host.connected) host.send({ type: 'credential-response', id: message.id, ok: false }); }

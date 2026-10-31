@@ -34,7 +34,7 @@ function App() {
     const { snapshot: next } = await client.request({ type: 'snapshot' }); if (!next) return;
     setSnapshot(previous => ({ ...next, events: [...new Map([...next.events, ...previous.events.filter(e => !next.events.some(n => n.id === e.id))].map(e => [e.id, e])).values()] }));
     setSelected(value => value && next.sessions.some(s => s.id === value) ? value : next.selectedId);
-    setConnected(true);
+    setConnected(true); setError('');
   };
   useEffect(() => {
     if (!bridge) return;
@@ -98,7 +98,8 @@ function App() {
     </aside>
     <div className="workspace"><header className="topbar"><div><button className="icon mobile" onClick={() => setSidebar(true)} aria-label="打开侧栏">☰</button><button className="model-button" onClick={() => setModal('settings')}>Wisp <span>{snapshot.config?.provider === 'offline' ? '离线验证' : snapshot.config?.model ?? '选择模型'}</span>⌄</button></div><div className="top-actions"><button className={panel === 'files' ? 'active' : ''} onClick={showFiles}>▱ <span>文件</span></button><button className={panel === 'web' ? 'active' : ''} onClick={() => setPanel(panel === 'web' ? undefined : 'web')}>◎ <span>网页</span></button><button className="icon" onClick={() => setModal('settings')} aria-label="设置">⚙</button></div></header>
       {connected && snapshot.config?.model === 'wisp-dev-simulator' && <div className="connection-banner"><span>开发模拟 · 脚本模型，非真实 DeepSeek；文件工具真实执行，仅用于临时目录验证。</span></div>}
-      {!connected && <div className="connection-banner"><span>此界面未连接本机 Host，不能执行任务或读取文件。</span><button onClick={() => setModal('connect')}>连接 Host →</button></div>}
+      {!connected && <div className="connection-banner"><span>{window.wisp ? '正在连接本机 Host。如出现 Wisp Safe Storage 系统提示，请按需授权读取已保存的 Key；密码仅输入系统弹窗。' : '此界面未连接本机 Host，不能执行任务或读取文件。'}</span>{!window.wisp && <button onClick={() => setModal('connect')}>连接 Host →</button>}</div>}
+      {connected && snapshot.credential?.error && <div className="connection-banner"><span>{snapshot.credential.error}</span><button onClick={() => setModal('settings')}>模型与设置 →</button></div>}
       <div className="workspace-body"><main className="conversation"><div className="messages">
         {!runs.length ? <div className="welcome"><span className="welcome-mark">w</span><h1>今天，我们一起完成什么？</h1><p>从一个想法到真正完成。<br/>让 Wisp 帮你处理文件、梳理信息，推进手边的事。</p><div className="suggestions"><button onClick={() => { setDrafts(d => ({ ...d, [selected ?? 'new']: '列出文件' })); chooseWorkspace(); }}><span>▱</span><strong>看看我的工作目录</strong><small>授权后浏览和阅读本地文件</small></button><button onClick={() => { setPanel('web'); }}><span>◎</span><strong>打开一个网页</strong><small>在侧面查看你选择的链接</small></button><button onClick={() => setModal('settings')}><span>◇</span><strong>连接你常用的模型</strong><small>提供商、模型与 API 设置</small></button></div>{!modelReady && <button className="text-button" onClick={() => setModal('settings')}>{snapshot.config ? '设置本次进程的 API Key' : '先配置模型，开始第一段对话'} →</button>}</div> : runs.map(runId => {
           const run = events.filter(e => e.runId === runId), start = run.find(e => e.type === 'started'), terminal = run.findLast(e => ['completed', 'failed', 'cancelled'].includes(e.type));

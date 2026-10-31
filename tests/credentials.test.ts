@@ -11,6 +11,31 @@ function fakeCrypto(): SystemCrypto {
   const key = randomBytes(32);
   return { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret', encryptString(text) { const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', key, iv), data = Buffer.concat([c.update(text, 'utf8'), c.final()]); return Buffer.concat([iv, c.getAuthTag(), data]); }, decryptString(data) { const d = createDecipheriv('aes-256-gcm', key, data.subarray(0, 12)); d.setAuthTag(data.subarray(12, 28)); return Buffer.concat([d.update(data.subarray(28)), d.final()]).toString(); } };
 }
+it('does not access macOS Keychain for availability or an empty profile, and uses async crypto for real reads/writes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wisp-mac-vault-')), crypto = fakeCrypto();
+  const encrypt = crypto.encryptString.bind(crypto), decrypt = crypto.decryptString.bind(crypto);
+  crypto.isEncryptionAvailable = vi.fn(() => { throw new Error('Synchronous Keychain access must not run'); });
+  crypto.encryptString = vi.fn(() => { throw new Error('Synchronous encryption must not run'); });
+  crypto.decryptString = vi.fn(() => { throw new Error('Synchronous decryption must not run'); });
+  crypto.isAsyncEncryptionAvailable = vi.fn(async () => true);
+  crypto.encryptStringAsync = vi.fn(async text => encrypt(text));
+  crypto.decryptStringAsync = vi.fn(async bytes => ({result: decrypt(bytes), shouldReEncrypt: false}));
+  const vault = credentialVault(root, crypto, 'darwin');
+  try {
+    const runtime = new Runtime(root, undefined, vault); await runtime.init();
+    expect(runtime.snapshot().credential?.storage).toBe('secure');
+    expect(crypto.isAsyncEncryptionAvailable).not.toHaveBeenCalled();
+    expect(crypto.encryptStringAsync).not.toHaveBeenCalled();
+    expect(crypto.decryptStringAsync).not.toHaveBeenCalled();
+    await vault.save('fake-mac-secret'); expect(await vault.load()).toBe('fake-mac-secret');
+    expect(crypto.encryptStringAsync).toHaveBeenCalledOnce(); expect(crypto.decryptStringAsync).toHaveBeenCalledOnce();
+    crypto.isAsyncEncryptionAvailable = vi.fn(async () => false);
+    await expect(vault.save('fake-denied')).rejects.toThrow('安全存储');
+    expect(crypto.encryptStringAsync).toHaveBeenCalledOnce();
+    expect(crypto.isEncryptionAvailable).not.toHaveBeenCalled(); expect(crypto.encryptString).not.toHaveBeenCalled(); expect(crypto.decryptString).not.toHaveBeenCalled();
+    await runtime.shutdown();
+  } finally {await rm(root, {recursive:true, force:true});}
+});
 it('saves/restarts/replaces/deletes fake credentials without exposing them in metadata or renderer snapshots', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wisp-vault-')), crypto = fakeCrypto(), vault = credentialVault(root, crypto, 'linux');
   try {
