@@ -23,3 +23,9 @@ it('does not offer previews for failed or denied results and marks unfinished ca
  expect(container.querySelector('button')).toBeNull(); expect(container.textContent).toContain('失败');
  await render(<ToolActivity events={[events[0]]} ended canPreview={false} openFile={open}/>); expect(container.textContent).toContain('已中断');
 });
+it('explains why a successful file result cannot currently be previewed', async () => {
+ await render(<ToolActivity events={events} ended canPreview={false} previewUnavailableReason="此会话尚未授权工作目录" openFile={vi.fn()}/>);
+ expect(container.querySelector('button')!.disabled).toBe(true);
+ expect(container.querySelector('button')!.title).toBe('此会话尚未授权工作目录');
+ expect(container.querySelector('.file-status')!.textContent).toBe('此会话尚未授权工作目录');
+});

@@ -89,7 +89,9 @@ it('feeds a file failure back to the model and accepts a corrected follow-up in 
   await idle(runtime, id);
   expect(runtime.snapshot().events.some(e => e.type === 'tool_result' && e.data.isError)).toBe(true);
   await writeFile(join(work, 'missing.txt'), 'fixed');
-  await runtime.request({ type: 'run.start', sessionId: id, prompt: '读取 missing.txt', maxSteps: 3 }); await idle(runtime, id);
+  await runtime.request({ type: 'run.start', sessionId: id, prompt: '读取 missing.txt', maxSteps: 3 });
+  await vi.waitFor(() => expect(runtime.snapshot().events.filter(e => e.sessionId === id && e.type === 'completed')).toHaveLength(2));
+  await idle(runtime, id);
   expect(runtime.snapshot().events.filter(e => e.type === 'started')).toHaveLength(2);
   expect(runtime.snapshot().events.some(e => e.type === 'tool_result' && e.data.text === 'fixed')).toBe(true);
 });
