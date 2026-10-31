@@ -13,7 +13,7 @@ function call(child: ChildProcess, request: Request): Promise<Result> {
     child.on('message', receive); child.send({ id, request });
   });
 }
-async function stop(child: ChildProcess) { if (child.exitCode !== null || child.signalCode !== null) return; await new Promise<void>(done => { child.once('exit', () => done()); child.kill(); }); }
+async function stop(child: ChildProcess, signal: NodeJS.Signals = 'SIGTERM') { if (child.exitCode !== null || child.signalCode !== null) return; await new Promise<void>(done => { child.once('exit', () => done()); child.kill(signal); }); }
 it('built Host restores interrupted sessions over IPC without replaying approvals', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wisp-ipc-')), directory = join(root, 'data'), work = join(root, 'work'); await mkdir(work);
   let child = launch(directory);
@@ -22,7 +22,7 @@ it('built Host restores interrupted sessions over IPC without replaying approval
     await call(child, { type: 'workspace.grant', sessionId: id, path: work, confirmed: true });
     const pending = new Promise<any>((resolve, reject) => { const timeout = setTimeout(() => reject(new Error('approval timeout')), 5000); child.on('message', (m: any) => { if (m.type === 'notice' && m.notice.event?.type === 'approval_requested') { clearTimeout(timeout); resolve(m.notice.event); } }); });
     await call(child, { type: 'files.write', sessionId: id, path: 'note.txt', content: 'should not execute' }); const approval = await pending;
-    await stop(child); child = launch(directory);
+    await stop(child, 'SIGKILL'); child = launch(directory);
     const snapshot = (await call(child, { type: 'snapshot' })).snapshot!;
     expect(snapshot.sessions[0].title).toBe('Persisted session'); expect(snapshot.events.at(-1)?.type).toBe('failed'); expect(snapshot.events.at(-1)?.data.reason).toContain('重启');
     expect(snapshot.events.some(e => e.type === 'tool_result')).toBe(false);

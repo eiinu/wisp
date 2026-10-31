@@ -19,14 +19,24 @@ export async function startSimulator(key: string, port = 0, tickMs = 40) {
       const input = JSON.parse(body); if (input.model !== simulationModel || !Array.isArray(input.messages)) { json(400, { error: { code: 'fixture_model_required' } }); return; }
       stats.requests++;
       const userIndex = input.messages.findLastIndex((m: any) => m.role === 'user'), current = input.messages.slice(userIndex), prompt = String(current[0]?.content ?? '');
-      const scenario = /\[demo:(chat|write|deny|cancel|retry|error|read|multi|escape|invalid|loop|openweb)\]/.exec(prompt)?.[1] ?? 'chat';
+      const scenario = /\[demo:(chat|write|deny|cancel|retry|error|read|multi|escape|invalid|loop|openweb|search|replace|mkdir|move|trash|readpage)\]/.exec(prompt)?.[1] ?? 'chat';
       const result = current.findLast((m: any) => m.role === 'tool');
       const failureKey = `${scenario}:${prompt}:${current.length}`;
       if (((scenario === 'retry' && result) || scenario === 'error') && !failures.has(failureKey)) { failures.add(failureKey); stats.retries++; json(scenario === 'error' ? 400 : 503, { error: { code: 'development_injected_error' } }); return; }
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' }); response.write(': development simulator\n\n');
       const frame = (delta: object, finish_reason: string | null = null) => response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason }], ...(finish_reason ? { usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18, completion_tokens_details: { reasoning_tokens: 3 } } } : {}) })}\n\n`);
       for (const chunk of ['开发模拟推理：', '检查当前测试场景。']) { frame({ reasoning_content: chunk }); await delay(tickMs, undefined, { signal: controller.signal }); }
-      if (!result && scenario === 'openweb') {
+      const basic:Record<string,{name:string;args:Record<string,unknown>}>= {
+        search:{name:'files_search',args:{path:'',query:'fixture',mode:'content'}},
+        replace:{name:'files_replace',args:{path:'README.md',oldText:'fixture real file',newText:'fixture updated file'}},
+        mkdir:{name:'files_mkdir',args:{path:'new-folder'}},
+        move:{name:'files_move',args:{path:'README.md',destination:'new-folder/renamed.md'}},
+        trash:{name:'files_trash',args:{path:'new-folder/renamed.md'}},
+        readpage:{name:'read_webpage',args:{}}
+      };
+      if(!result&&basic[scenario]) {
+        const call=basic[scenario];frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]});frame({},'tool_calls');
+      } else if (!result && scenario === 'openweb') {
         frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:'open_webpage',arguments:JSON.stringify({url:'https://example.com/'})}}]});frame({},'tool_calls');
       } else if (scenario === 'loop' || (!result && ['multi', 'escape', 'invalid'].includes(scenario))) {
         const calls = scenario === 'multi' ? [{name:'files_list', args:{path:''}}, {name:'files_read', args:{path:'README.md'}}]

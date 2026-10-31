@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import type { Notice, Request, Result, RunEvent, Snapshot, WorkbenchBridge } from '@wisp/core';
 import { App } from './app.js';
 
-export function fixture(approvalDelay = 1800, web = false): WorkbenchBridge {
+export function fixture(approvalDelay = 1800, web = false, basic = ''): WorkbenchBridge {
   const files = new Map([['notes.txt', '补充笔记：仅 QA 内存数据'], ['README.md', '# 内存文件预览样例\n\n仅供 QA；没有读取磁盘或授予真实文件权限。']]);
   let approvalPending = false, previewClaimed=false;
   let previewResolve: ((accepted:boolean)=>void)|undefined;
@@ -32,6 +32,17 @@ export function fixture(approvalDelay = 1800, web = false): WorkbenchBridge {
     ],
   };
   if(web) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) { e.data.name='open_webpage';e.data.args={url:'https://example.com/'}; e.data.description='打开网页展示样例：批准后在右侧请求加载 example.com；不读取页面，可能受到嵌入限制。'; }
+  const basicSamples:Record<string,{args:Record<string,unknown>;description:string}>= {
+    files_replace:{args:{path:'notes.txt',oldText:'补充笔记：仅 QA 内存数据',newText:'修改后的 QA 内存笔记'},description:'定点修改 notes.txt（仅内存样例）\n--- 原内容\n补充笔记：仅 QA 内存数据\n+++ 新内容\n修改后的 QA 内存笔记\n真实工具批准后重新校验文件版本。'},
+    files_mkdir:{args:{path:'new-folder'},description:'创建 new-folder（仅 QA 内存结果，不创建磁盘目录）'},
+    files_move:{args:{path:'notes.txt',destination:'renamed.txt'},description:'移动 notes.txt → renamed.txt（仅 QA 内存映射）\n真实工具不覆盖已有目标；目录逐项移动可能部分完成。'},
+    files_trash:{args:{path:'notes.txt'},description:'将 notes.txt 移入废纸篓（仅 QA 内存移除，不触及系统废纸篓）'},
+    read_webpage:{args:{},description:'允许将此页面正文和链接发送给当前模型？\n样例文章 · https://example.com/\n仅内存正文样例，未读取真实网页；真实 Web 模式不支持此工具。'}
+  };
+  if(basicSamples[basic]) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) {e.data.name=basic;e.data.args=basicSamples[basic].args;e.data.description=basicSamples[basic].description;}
+  state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,
+    event('search-request','completed-fixture','tool_requested',{step:1,id:'search-fixture',name:'files_search',args:{path:'',query:'QA',mode:'content'}}),
+    event('search-result','completed-fixture','tool_result',{callId:'search-fixture',text:JSON.stringify({matches:[{path:'notes.txt',line:1,snippet:'补充笔记：仅 QA 内存数据'}],truncated:false})}));
   // The final answer follows the tool rounds in the actual event sequence.
   const answerIndex=state.events.findIndex(e=>e.id==='answer-1');
   const [answer]=state.events.splice(answerIndex,1); state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,answer);
@@ -64,9 +75,12 @@ export function fixture(approvalDelay = 1800, web = false): WorkbenchBridge {
         let received=false;
         if(web&&input.allowed) received=await new Promise<boolean>(resolve=>{const timer=setTimeout(()=>{previewResolve=undefined;resolve(false);},5000);previewResolve=accepted=>{clearTimeout(timer);resolve(accepted);};listeners.forEach(listener=>listener({type:'preview.open',ticket,sessionId:'conversation-fixture'}));});
         if(!state.sessions[0].activeRunId)return{};
-        if(input.allowed&&!web) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
+        if(input.allowed&&basic==='files_replace')files.set('notes.txt','修改后的 QA 内存笔记');
+        if(input.allowed&&basic==='files_move'){files.set('renamed.txt',files.get('notes.txt')!);files.delete('notes.txt');}
+        if(input.allowed&&basic==='files_trash')files.delete('notes.txt');
+        if(input.allowed&&!web&&!basic) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
         state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_resolved',{callId:'call-fixture',allowed:input.allowed}));
-        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):'内存样例已更新；没有写入磁盘'}));
+        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='read_webpage'?JSON.stringify({source:'untrusted_webpage',text:'仅 QA 内存文章正文，没有读取真实页面',links:[],truncated:false}):basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
         state.events.push(event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
@@ -75,4 +89,4 @@ export function fixture(approvalDelay = 1800, web = false): WorkbenchBridge {
     },
   };
 }
-export function QAWorkbench({web=false}:{web?:boolean}){const[bridge]=useState(()=>fixture(1800,web));return <App initialClient={bridge}/>;}
+export function QAWorkbench({web=false,basic=''}:{web?:boolean;basic?:string}){const[bridge]=useState(()=>fixture(1800,web,basic));return <App initialClient={bridge}/>;}

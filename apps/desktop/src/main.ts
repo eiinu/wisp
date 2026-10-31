@@ -54,9 +54,9 @@ async function startDesktop() {
     if (message.type === 'notice' && !window.isDestroyed()) window.webContents.send('wisp:notice', message.notice);
     if (message.type === 'response') { const call = pending.get(message.id); if (call) { clearTimeout(call.timer); pending.delete(message.id); message.error ? call.reject(new Error(message.error)) : call.resolve(message.result); } }
   });
-  const unavailable = () => { for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new Error('Local Host stopped')); } pending.clear(); if (!window.isDestroyed()) window.webContents.send('wisp:notice', { type: 'disconnected', message: 'Host 已停止，请重新启动 Wisp' }); };
+  const unavailable = () => { for(const controller of desktopCalls.values())controller.abort(); desktopCalls.clear(); for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new Error('Local Host stopped')); } pending.clear(); if (!window.isDestroyed()) window.webContents.send('wisp:notice', { type: 'disconnected', message: 'Host 已停止，请重新启动 Wisp' }); };
   host.on('exit', unavailable); host.on('error', unavailable);
-  app.on('before-quit', () => host.kill()); app.on('window-all-closed', () => app.quit());
+  app.on('before-quit', () => { for(const controller of desktopCalls.values())controller.abort(); host.kill(); }); app.on('window-all-closed', () => app.quit());
   await window.loadURL(uiUrl);
 }
 

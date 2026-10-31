@@ -39,3 +39,9 @@ it('collapses completed execution by default while keeping failed status visible
  expect(container.querySelector('[role=status]')!.closest('details')).toBeNull();
  expect(container.querySelector('[role=status]')!.textContent).toContain('1 项失败');
 });
+it('search results open only scoped file previews and replacement keeps its preview action',async()=>{
+ const open=vi.fn();const search=events.map(e=>({...e,data:e.type==='tool_requested'?{id:'c',name:'files_search',args:{path:'',query:'hello',mode:'content'}}:{callId:'c',text:JSON.stringify({matches:[{path:'note.md',line:2,snippet:'hello'}]})}}));
+ await render(<ToolActivity events={search} ended canPreview openFile={open}/>);expect(container.textContent).toContain('搜索文件');await act(()=>container.querySelector('button')!.click());expect(open).toHaveBeenCalledWith('note.md');
+ await render(<ToolActivity events={search} ended canPreview={false} previewUnavailableReason="未授权" openFile={open}/>);expect(container.querySelector('button')!.disabled).toBe(true);
+ const replace=events.map(e=>({...e,data:e.type==='tool_requested'?{id:'c',name:'files_replace',args:{path:'note.md',oldText:'old',newText:'new'}}:e.data}));await render(<ToolActivity events={replace} ended canPreview openFile={open}/>);expect(container.textContent).toContain('定点修改');expect(container.querySelector('button')!.textContent).toContain('预览文件');
+});

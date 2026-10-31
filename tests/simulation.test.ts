@@ -67,3 +67,30 @@ it('validates the shared Web HTTP boundary with simulator, approvals, cancellati
     expect(JSON.stringify(await snapshot())).not.toContain('开发模拟推理');
   } finally { await host.close(); await runtime.shutdown(); await simulator.close(); await rm(root, { recursive: true, force: true }); }
 });
+it('runs new tools through actual DeepSeek SSE and Host approval/continuation with fake desktop services',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'wisp-basic-integration-')),workspace=join(root,'work');await mkdir(workspace);await writeFile(join(workspace,'README.md'),'fixture real file');
+ const simulator=await startSimulator('fake-basic-key',0,0),desktopCalls:string[]=[];
+ const desktop={call:async(operation:string)=>{desktopCalls.push(operation);if(operation==='page.prepare')return{ticket:'test-ticket',tabId:'opaque-id',url:'https://example.com/',title:'Test article'};if(operation==='page.read')return{title:'Test article',text:'Untrusted fixture page text',links:[],truncated:false};if(operation==='trash.available')return{supported:true};if(operation==='trash.execute')return{status:'trashed',testOnly:true,message:'fake desktop did not touch system trash'};throw new Error('unexpected');}};
+ const runtime=new Runtime(join(root,'data'),undefined,undefined,{baseUrl:simulator.origin,key:'fake-basic-key'},desktop);await runtime.init();
+ try{
+ const id=(await runtime.request({type:'session.create',title:'Integration'})).sessionId!;await runtime.request({type:'workspace.grant',sessionId:id,path:workspace,confirmed:true});
+ for(const scenario of ['search','replace','mkdir','move','trash','readpage']){
+   await runtime.request({type:'run.start',sessionId:id,prompt:`[demo:${scenario}]`,maxSteps:4});
+   let runId='';await vi.waitFor(()=>{runId=runtime.snapshot().events.findLast(e=>e.type==='started'&&e.data.prompt===`[demo:${scenario}]`)?.runId??'';expect(runId).toBeTruthy();});
+   if(scenario!=='search'){
+    let approval:any;await vi.waitFor(()=>{approval=runtime.snapshot().events.find(e=>e.runId===runId&&e.type==='approval_requested');expect(approval).toBeTruthy();});
+    expect(desktopCalls.filter(op=>op==='page.read')).toHaveLength(0);
+    await runtime.request({type:'run.approve',sessionId:id,runId,callId:String(approval.data.id),allowed:true});
+    await expect(runtime.request({type:'run.approve',sessionId:id,runId,callId:String(approval.data.id),allowed:true})).rejects.toThrow();
+   }
+   await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.runId===runId&&e.type==='completed')&&!runtime.snapshot().sessions.some(s=>s.activeRunId===runId)).toBe(true),{timeout:5000});
+   const events=runtime.snapshot().events.filter(e=>e.runId===runId);expect(events.filter(e=>e.type==='tool_result')).toHaveLength(1);expect(events.find(e=>e.type==='tool_result')?.data.isError).toBe(false);expect(events.some(e=>e.type==='assistant'&&String(e.data.text).includes('Host 的实际工具结果'))).toBe(true);
+   if(scenario==='search')expect(String(events.find(e=>e.type==='tool_result')?.data.text)).toContain('"line":1');
+ }
+ expect(await readFile(join(workspace,'new-folder/renamed.md'),'utf8')).toBe('fixture updated file');expect(desktopCalls.filter(op=>op==='trash.execute')).toHaveLength(1);expect(desktopCalls.filter(op=>op==='page.read')).toHaveLength(1);
+ // Refusal after preparation must never invoke the content reader again.
+ await runtime.request({type:'run.start',sessionId:id,prompt:'[demo:readpage] deny',maxSteps:4});let approval:any;
+ await vi.waitFor(()=>{approval=runtime.snapshot().events.findLast(e=>e.type==='approval_requested');expect(approval?.runId).toBe(runtime.snapshot().sessions[0].activeRunId);});
+ await runtime.request({type:'run.approve',sessionId:id,runId:approval.runId,callId:String(approval.data.id),allowed:false});await vi.waitFor(()=>expect(runtime.snapshot().sessions[0].activeRunId).toBeUndefined());expect(desktopCalls.filter(op=>op==='page.read')).toHaveLength(1);
+ }finally{await runtime.shutdown();await simulator.close();await rm(root,{recursive:true,force:true});}
+},20000);

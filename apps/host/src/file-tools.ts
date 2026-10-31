@@ -51,7 +51,8 @@ export function extendedFileTools(files: WorkspaceFiles, desktop?: DesktopServic
         signal.throwIfAborted(); if(depth>8){truncated=true;return;}
         const dir=await opendir(await files.resolve(path));
         for await(const entry of dir){
-          signal.throwIfAborted(); if(++visited>2000 || matches.length>=100 || readBytes>=8*1024*1024){truncated=true;break;}
+          signal.throwIfAborted(); if(visited>=2000 || matches.length>=100 || readBytes>=8*1024*1024){truncated=true;break;}
+          visited++;
           if(entry.name.startsWith('.') || ignored.has(entry.name) || entry.isSymbolicLink()){skipped++;continue;}
           const child=path?`${path}/${entry.name}`:entry.name;
           try {

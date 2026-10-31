@@ -21,6 +21,7 @@ export class Runtime {
   private previews = new PreviewRequests(notice => this.publish(notice), () => this.store.state.selectedId);
   private agents = new Map<string, Agent>();
   private busy = new Set<string>();
+  private tasks = new Set<Promise<void>>();
   private listeners = new Set<(notice: Notice) => void>();
   private key = '';
   private keyChanging = false;
@@ -186,14 +187,15 @@ export class Runtime {
         }, session.id, redactRun, runKey.length, command.type === 'files.write' ? undefined : messages => conversation.save(messages, redactRun));
         this.agents.set(session.id, agent);
         // No shared await gap after claiming busy: all commands for this session stay isolated.
-        void agent.run(prompt, maxSteps, history).catch(() => this.publish({ type: 'disconnected', message: '日志写入失败，请检查数据目录；任务已停止。' })).finally(async () => {
+        const task = agent.run(prompt, maxSteps, history).catch(() => this.publish({ type: 'disconnected', message: '日志写入失败，请检查数据目录；任务已停止。' })).finally(async () => {
           this.agents.delete(session.id); this.busy.delete(session.id); delete session.activeRunId;
           await this.store.save().catch(() => {}); this.publish({ type: 'changed' });
         });
+        this.tasks.add(task); void task.finally(() => this.tasks.delete(task));
         return {};
       } catch (error) { this.busy.delete(session.id); throw error; }
     }
     await this.store.save(); this.publish({ type: 'changed' }); return {};
   }
-  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await Promise.all([...this.browsers.values()].map(browser => browser.disconnect('Host 已关闭'))); }
+  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await Promise.all([...this.browsers.values()].map(browser => browser.disconnect('Host 已关闭'))); await Promise.allSettled([...this.tasks]); await this.store.save(); }
 }

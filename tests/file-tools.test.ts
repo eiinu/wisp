@@ -48,3 +48,12 @@ it('serializes same-file approvals across sessions so the second stale patch can
  const results=await Promise.allSettled([first.execute(signal),second.execute(signal)]);expect(results.map(r=>r.status)).toEqual(['fulfilled','rejected']);expect(await readFile(join(work,'note.txt'),'utf8')).toBe('first');
  }finally{await rm(root,{recursive:true,force:true});}
 });
+it('blocks changed symlinks and directories containing private data before mutation',async()=>{
+ const {root,work,files}=await setup();try{
+ const signal=new AbortController().signal;await writeFile(join(work,'a'),'old');await writeFile(join(root,'outside'),'outside');
+ const patch=await files.tools().find(t=>t.name==='files_replace')!.prepare!({path:'a',oldText:'old',newText:'new'},signal);
+ await rm(join(work,'a'));await symlink(join(root,'outside'),join(work,'a'));await expect(patch.execute(signal)).rejects.toThrow('符号链接');expect(await readFile(join(root,'outside'),'utf8')).toBe('outside');
+ await mkdir(join(work,'parent'));await mkdir(join(work,'parent','private'));const guarded=await WorkspaceFiles.grant(work,join(work,'parent','private'));
+ await expect(guarded.tools().find(t=>t.name==='files_move')!.prepare!({path:'parent',destination:'other'},signal)).rejects.toThrow('私有');
+ }finally{await rm(root,{recursive:true,force:true});}
+});
