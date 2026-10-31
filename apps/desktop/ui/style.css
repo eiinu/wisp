@@ -89,7 +89,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .browser-tabs{overscroll-behavior-x:contain}
 .browser-tabbar .browser-tabs{height:44px}
 .browser-tab{height:38px}
-.workspace-icon{flex-shrink:0;vertical-align:middle}
+.workspace-icon{display:block;flex-shrink:0;align-self:center}
 .download-count{font-size:10px;margin-left:2px}
 .browser-tab-actions{gap:1px}
 .browser-file{display:flex;flex-direction:column}
@@ -140,3 +140,24 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 @media(max-width:680px){.qa-layout .qa-project-sidebar{width:160px;min-width:140px}}
 
 .project-new-chat>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* One SVG box and centered control slots, independent of font baselines. */
+:where(button:has(>.workspace-icon)),.approval-title,.message-actions>span{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.project-toggle [data-icon="chevron"]{transform-origin:center;transition:transform .15s ease}
+.project-toggle[aria-expanded="true"] [data-icon="chevron"]{transform:rotate(90deg)}
+.session-row{display:flex;align-items:center;min-width:0;gap:2px}
+.session-row>.session{flex:1;min-width:0}
+.session-action{flex:0 0 28px;width:28px;height:28px;padding:6px;border:0;background:transparent;border-radius:6px;color:#666}
+.session-action:hover{background:#e6e6e6;color:#222}
+.session-action:disabled{opacity:.5;cursor:not-allowed}
+.archive-entry{width:100%;border:0;border-radius:7px;background:transparent;padding:9px;margin-bottom:12px;color:#555}
+.archived-session{display:flex;align-items:center;gap:6px;padding:8px 2px;min-width:0}
+.archived-session>div{flex:1;min-width:0}
+.archived-session strong,.archived-session small{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.archived-session strong{font-size:13px;font-weight:500}.archived-session small{font-size:11px;color:#777;margin-top:4px}
+.qa-icons{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;padding:12px 0}
+.qa-icons button{min-height:36px;gap:8px}.qa-icons small{font-size:11px}
+
+.suggestions button>.workspace-icon{align-self:start;color:#777;width:20px;height:20px}
+@media(prefers-reduced-motion:reduce){.project-toggle [data-icon="chevron"]{transition:none}}
+.project-directory,.project-new-chat,.archive-entry,.new-chat{justify-content:flex-start}

@@ -1,3 +1,4 @@
+import { WorkspaceIcon } from './workspace-icon.js';
 import React, { useMemo, useRef, useState } from 'react';
 import { createLowlight } from 'lowlight';
 import javascript from 'highlight.js/lib/languages/javascript';

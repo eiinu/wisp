@@ -69,3 +69,21 @@ it('does not steal focus if another control was focused while a save resolved',a
  let release!:(r:any)=>void;p.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
  await act(()=>text('保存名称').click());const other=Array.from(container.querySelectorAll<HTMLButtonElement>('.session')).find(button=>button.querySelector('.session-title')?.textContent==='Outside')!;other.focus();await act(()=>release({}));expect(document.activeElement).toBe(other);
 });
+it('hides archived sessions, restores to the original group and prevents repeated archive requests',async()=>{
+ const p=props();const sessions=[...p.sessions,{id:'old',projectId:'p',title:'Archived',createdAt:'',updatedAt:'',archivedAt:'2026-10-31'}];
+ await act(()=>root.render(<ProjectSidebar {...p} sessions={sessions}/>));
+ expect(container.querySelector('.project-children')?.textContent).not.toContain('Archived');
+ let release!:(r:any)=>void;p.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
+ await act(()=>{get('归档对话 Inside').click();get('归档对话 Inside').click();});
+ expect(p.request).toHaveBeenCalledExactlyOnceWith({type:'session.archive',sessionId:'s'});
+ await act(()=>release({}));
+ await act(()=>text('归档对话 (1)').click());expect(container.textContent).toContain('Archived');expect(container.querySelector('.archived-session small')?.textContent).toBe('Project');
+ await act(()=>get('恢复对话 Archived').click());expect(p.request).toHaveBeenLastCalledWith({type:'session.restore',sessionId:'old'});
+ await act(()=>root.render(<ProjectSidebar {...p} sessions={sessions.map(s=>({...s,archivedAt:undefined}))}/>));
+ expect(container.textContent).toContain('暂无归档对话');await act(()=>text('返回会话').click());expect(container.querySelector('.project-children')?.textContent).toContain('Archived');
+});
+it('disables archive for an active run and uses a centered SVG disclosure',async()=>{
+ const p=props();await act(()=>root.render(<ProjectSidebar {...p} sessions={p.sessions.map(s=>({...s,activeRunId:'running'}))}/>));
+ expect(get('归档对话 Inside').disabled).toBe(true);expect(get('归档对话 Inside').title).toContain('等待审批');
+ expect(get('收起项目 Project').querySelector('svg[data-icon=chevron]')?.getAttribute('viewBox')).toBe('0 0 24 24');
+});

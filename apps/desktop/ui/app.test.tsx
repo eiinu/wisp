@@ -80,7 +80,7 @@ it('keeps the workspace toggle named and reports expanded state when its visible
     const c = client(); await act(() => root.render(<App initialClient={c.bridge}/>));
     const toggle = container.querySelector<HTMLButtonElement>('[aria-label="切换工作区"]')!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle.querySelector('[aria-hidden="true"]')?.textContent).toBe('▱');
+    expect(toggle.querySelector('svg[data-icon=workspace]')?.getAttribute('aria-hidden')).toBe('true');
     const label = toggle.querySelector('span:not([aria-hidden])') as HTMLElement;
     label.hidden = true; // Mirrors the narrow-column CSS; the explicit name survives.
     toggle.focus(); await act(() => toggle.click());
@@ -90,4 +90,14 @@ it('keeps the workspace toggle named and reports expanded state when its visible
     await act(() => toggle.click());
     expect(toggle.getAttribute('aria-expanded')).toBe('false'); expect(toggle.title).toBe('展开工作区');
   } finally { bounds.mockRestore(); }
+});
+it('keeps archive selection in the current project even when another client selected a different scope',async()=>{
+ const state=snapshot();state.projects=[{id:'p',name:'P',workspace:'/fixture/p',collapsed:false,createdAt:''}];state.sessions[0].projectId='p';
+ state.sessions.push({...state.sessions[0],id:'same',title:'同项目下一条'});
+ const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));
+ state.sessions[0].archivedAt='2026-10-31';state.selectedId='two';
+ await act(()=>c.emit({type:'changed'}));expect(container.querySelector('[aria-current=page]')?.textContent).toBe('同项目下一条');
+ state.sessions.find(s=>s.id==='same')!.archivedAt='2026-10-31';
+ await act(()=>c.emit({type:'changed'}));expect(container.querySelector('[aria-current=page]')).toBeNull();
+ expect(container.querySelector('.composer-footnote')?.textContent).not.toContain('继承项目');
 });
