@@ -20,3 +20,18 @@ it('all literal icon references exist and UI chrome no longer depends on Unicode
  const css=readFileSync('apps/desktop/ui/style.css','utf8');
  expect(css).toContain('.workspace-icon{display:block;flex-shrink:0;align-self:center}');expect(css).toContain('transform-origin:center');
 });
+
+it('centers block icons only inside both browser and directory empty states',()=>{
+ const css=readFileSync('apps/desktop/ui/style.css','utf8');
+ const rule=css.match(/\.panel-empty>span \.workspace-icon\{[^}]+\}/)?.[0];
+ expect(rule).toBeDefined();
+ const style=document.createElement('style');style.textContent=rule!;document.head.append(style);
+ const content=document.createElement('div');document.body.append(content);
+ try {
+  for(const name of ['globe','folder'] as const){
+   content.innerHTML=`<div class="panel-empty"><span>${renderToStaticMarkup(<WorkspaceIcon name={name}/>)}</span></div><button>${renderToStaticMarkup(<WorkspaceIcon name={name}/>)}</button>`;
+   expect(getComputedStyle(content.querySelector('.panel-empty svg')!).marginInline).toBe('auto');
+   expect(getComputedStyle(content.querySelector('button svg')!).marginInline).not.toBe('auto');
+  }
+ }finally{content.remove();style.remove();}
+});

@@ -119,6 +119,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .browser-file .file-list>button>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .browser-file .file-list{max-height:none;flex:1;min-height:0}
 .browser-inspector .panel-empty{margin:auto;padding:48px 24px}
+.panel-empty>span .workspace-icon{margin-inline:auto}
 .browser-inspector .panel-empty>span .workspace-icon{width:32px;height:32px;stroke-width:1.2}
 .browser-inspector .web-note{color:#858585;background:#fafafa;border-bottom:1px solid #eee;font-size:10px;line-height:1.6}
 .browser-inspector button:disabled{opacity:.35}
