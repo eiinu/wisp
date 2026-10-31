@@ -265,3 +265,10 @@ button{transition:background-color .12s ease,color .12s ease}
 .model-guidance span{overflow-wrap:anywhere;min-width:0}.model-guidance button{flex-shrink:0;text-decoration:underline}
 .suggestions{grid-template-columns:repeat(2,minmax(0,1fr))}
 @container(max-width:420px){.model-selector select{max-width:140px}.suggestions{grid-template-columns:1fr}}
+
+.tool-activity { display: grid; gap: 8px; margin-block: 12px; min-width: 0; }
+.tool-activity summary { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tool-activity summary strong { flex-shrink: 0; }
+.tool-activity summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-activity summary small { margin-left: auto; flex-shrink: 0; }
+.tool-activity pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

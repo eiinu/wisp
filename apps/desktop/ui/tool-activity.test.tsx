@@ -1,0 +1,25 @@
+// @vitest-environment jsdom
+import React, { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+import type { RunEvent } from '@wisp/core';
+import { ToolActivity } from './tool-activity.js';
+let container: HTMLDivElement, root: Root;
+beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+afterEach(async () => { await act(() => root.unmount()); container.remove(); });
+const render = async (node: React.ReactNode) => { await act(() => root.render(node)); };
+const events: RunEvent[] = [
+ {version:1,id:'req',runId:'r',at:'',type:'tool_requested',data:{id:'c',name:'files_read',args:{path:'note.md'}}},
+ {version:1,id:'res',runId:'r',at:'',type:'tool_result',data:{callId:'c',text:'contents'}}
+];
+it('correlates tool results and opens a file only through the scoped callback', async () => {
+ const open = vi.fn(); await render(<ToolActivity events={events} ended canPreview openFile={open}/>);
+ expect(container.textContent).toContain('读取文件'); expect(container.textContent).toContain('已完成');
+ await act(() => container.querySelector('button')!.click()); expect(open).toHaveBeenCalledWith('note.md');
+});
+it('does not offer previews for failed or denied results and marks unfinished calls interrupted', async () => {
+ const open = vi.fn(); await render(<ToolActivity events={[events[0],{...events[1],data:{...events[1].data,isError:true}}]} ended canPreview openFile={open}/>);
+ expect(container.querySelector('button')).toBeNull(); expect(container.textContent).toContain('失败');
+ await render(<ToolActivity events={[events[0]]} ended canPreview={false} openFile={open}/>); expect(container.textContent).toContain('已中断');
+});

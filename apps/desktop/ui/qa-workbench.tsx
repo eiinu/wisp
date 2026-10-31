@@ -12,6 +12,8 @@ function fixture(): WorkbenchBridge {
     events:[
       event('start-1','completed-fixture','started',{prompt:'帮我整理本周的研究笔记，并总结下一步。'}),
       event('answer-1','completed-fixture','assistant',{text:'## 本周进展\n\n这是一段**明确标注的组件测试内容**，不是模型生成结果。\n\n- 已整理资料与关键结论\n- 下一步：核对来源并补充实验\n\n行内公式 $a+b=c$。\n\n```typescript\nconst notes = ["观察", "结论"];\nconsole.log(notes);\n```\n\n[查看链接确认样例](https://example.com)\n\n'+Array.from({length:6},(_,i)=>`第 ${i+1} 段：长内容用于检查阅读宽度、滚动与复制操作。`).join('\n\n')}),
+      event('read-request','completed-fixture','tool_requested',{id:'read-fixture',name:'files_read',args:{path:'README.md'}}),
+      event('read-result','completed-fixture','tool_result',{callId:'read-fixture',text:'组件样例文本；未读取磁盘。'}),
       event('done-1','completed-fixture','completed',{}),
       event('start-2','approval-fixture','started',{prompt:'把摘要保存为笔记。'}),
       event('answer-2','approval-fixture','assistant',{text:'以下为审批组件样例。批准或拒绝只改变页面内存，不会写入文件。'}),
@@ -26,6 +28,7 @@ function fixture(): WorkbenchBridge {
       if(input.type==='snapshot')return{snapshot:structuredClone(state)};
       if(input.type==='session.select'){state.selectedId=input.sessionId;changed();return{};}
       if(input.type==='run.approve'||input.type==='run.cancel'){
+        if(input.type==='run.approve') { state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_resolved',{callId:'call-fixture',allowed:input.allowed})); state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,text:'仅更新样例；没有写入文件'})); }
         state.events.push(event(crypto.randomUUID(),'approval-fixture',input.type==='run.cancel'?'cancelled':'completed',{text:'样例状态更新；没有执行任务'}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
