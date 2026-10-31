@@ -10,7 +10,7 @@ it('lists all real types in UI order with stable opaque IDs, safe URLs and valid
  const first=JSON.parse(await tool.execute({},signal)),second=JSON.parse(await tool.execute({},signal));
  expect(first.tabs.map((t:any)=>t.kind)).toEqual(['web','file','new','workspace']);expect(first.tabs[1]).toMatchObject({active:true,path:'notes.txt'});expect(first.tabs.map((t:any)=>t.tabId)).toEqual(second.tabs.map((t:any)=>t.tabId));
  expect(JSON.stringify(first)).not.toMatch(/secret|password|file:\/private|web:https/);expect(first.tabs[0]).toMatchObject({url:'https://example.com/',readable:false});expect(validate).toHaveBeenCalledWith('notes.txt');
- await expect(pageReadTool('s',()=> 's',undefined,broker).prepare!({tabId:first.tabs[0].tabId},signal)).rejects.toThrow('仅支持桌面');
+ await expect(pageReadTool('s',()=> 's',undefined,broker).execute({tabId:first.tabs[0].tabId},signal)).rejects.toThrow('仅支持桌面');
  rows=[{...rows[1],path:'../outside'}];await expect(broker.tool('s',async()=>{throw new Error('unauthorized path');}).execute({},signal)).rejects.toThrow('unauthorized');
  expect(()=>broker.complete('s',(notices[0] as any).ticket,[])).toThrow('失效');
 });

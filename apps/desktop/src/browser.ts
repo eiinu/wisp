@@ -91,9 +91,9 @@ export function createBrowser(window: BrowserWindow) {
   async function pageOperation(operation:string,payload:Record<string,unknown>,signal:AbortSignal) {
     signal.throwIfAborted(); if(disposed || !currentSession || payload.sessionId!==currentSession) throw new Error('网页不属于当前会话');
     if(operation==='page.list')return {pages:[...pages.entries()].filter(([,p])=>p.owner===currentSession).map(([id,p])=>({id,ref:p.publicId,version:p.generation,title:p.view.webContents.getTitle().slice(0,300),url:publicPageUrl(p.view.webContents.getURL()||p.state.url),loading:p.view.webContents.isLoading(),error:!!p.state.error}))};
-    if(operation==='page.prepare') {
+    if(operation==='page.bind') {
       for(const [id,t] of readTickets) if(t.expires<Date.now())readTickets.delete(id);
-      if(readTickets.size>=32)throw new Error('待审批读取过多，请稍后重试');
+      if(readTickets.size>=32)throw new Error('并发读取过多，请稍后重试');
       const tabId=typeof payload.tabId==='string' ? [...pages].find(([,p])=>p.publicId===payload.tabId)?.[0] : undefined;
       const page=tabId&&pages.get(tabId);if(!page || page.owner!==currentSession)throw new Error('此会话没有可读取的网页标签');
       if(payload.version!==page.generation)throw new Error('页面导航已改变，请重新获取标签列表');
@@ -104,10 +104,10 @@ export function createBrowser(window: BrowserWindow) {
     }
     if(operation!=='page.read'||typeof payload.ticket!=='string')throw new Error('不支持的网页操作');
     const ticket=readTickets.get(payload.ticket);readTickets.delete(payload.ticket);
-    if(!ticket||ticket.sessionId!==currentSession||ticket.expires<Date.now())throw new Error('读取审批已过期或已消费');
+    if(!ticket||ticket.sessionId!==currentSession||ticket.expires<Date.now())throw new Error('读取绑定已过期或已消费');
     const page=pages.get(ticket.tabId),wc=page?.view.webContents;
     const unchanged=()=>page&&pages.get(ticket.tabId)===page&&!wc!.isDestroyed()&&page.owner===currentSession&&currentSession===ticket.sessionId&&page.generation===ticket.generation&&wc!.getURL()===ticket.url&&!wc!.isLoading()&&!page.state.error;
-    if(!unchanged())throw new Error('页面导航或标签状态已改变，请重新审批');
+    if(!unchanged())throw new Error('页面导航或标签状态已改变，请重新获取标签列表');
     signal.throwIfAborted();
     const result=await boundedRead(wc!.executeJavaScriptInIsolatedWorld(999,[{code:`(${extractPage.toString()})()`}]), AbortSignal.any([signal,AbortSignal.timeout(8000)]));
     signal.throwIfAborted();if(!unchanged())throw new Error('读取期间页面已改变，结果已丢弃');

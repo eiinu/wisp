@@ -38,7 +38,6 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     files_mkdir:{args:{path:'new-folder'},description:'创建 new-folder（仅 QA 内存结果，不创建磁盘目录）'},
     files_move:{args:{path:'notes.txt',destination:'renamed.txt'},description:'移动 notes.txt → renamed.txt（仅 QA 内存映射）\n真实工具不覆盖已有目标；目录逐项移动可能部分完成。'},
     files_trash:{args:{path:'notes.txt'},description:'将 notes.txt 移入废纸篓（仅 QA 内存移除，不触及系统废纸篓）'},
-    read_webpage:{args:{tabId:'qa-explicit-listed-tab'},description:'允许将此页面正文和链接发送给当前模型？\n样例文章 · https://example.com/\n仅内存正文样例，未读取真实网页；真实 Web 模式不支持此工具。'}
   };
   if(basicSamples[basic]) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) {e.data.name=basic;e.data.args=basicSamples[basic].args;e.data.description=basicSamples[basic].description;}
   state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,
@@ -69,8 +68,15 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
       const now=(await queryTabs()).find(t=>t.id===tab.id);if(!now||now.kind!==tab.kind||now.url!==tab.url||now.revision!==tab.revision)throw new Error('标签已关闭或变化，请重新获取列表');
       if(state.selectedId!=='conversation-fixture')throw new Error('切回样例会话后重新获取列表');
       if(state.sessions[0].activeRunId)throw new Error('样例任务尚未结束');
-      approvalPending=false;state.events=state.events.filter(e=>e.runId!=='approval-fixture');state.sessions[0].activeRunId='approval-fixture';
-      state.events.push(event(crypto.randomUUID(),'approval-fixture','started',{prompt:'QA：读取列表中的指定网页（仅模拟正文）'}),event(crypto.randomUUID(),'approval-fixture','tool_requested',{id:'call-fixture',name:'read_webpage',args:{tabId}}),event(crypto.randomUUID(),'approval-fixture','approval_requested',{id:'call-fixture',name:'read_webpage',args:{tabId},description:`读取指定标签：${tab.title}\n仅 QA 静态正文；未读取真实网页，生产 Web 不支持正文提取。`}));changed();
+      const run=crypto.randomUUID();state.sessions[0].activeRunId=run;
+      state.events.push(event(crypto.randomUUID(),run,'started',{prompt:'QA：直接读取指定网页（仅模拟正文，无需审批）'}),event(crypto.randomUUID(),run,'tool_requested',{id:'call-fixture',name:'read_webpage',args:{tabId}}),event(crypto.randomUUID(),run,'tool_started',{callId:'call-fixture',name:'read_webpage'}));changed();
+      await new Promise(resolve=>setTimeout(resolve,approvalDelay));
+      if(state.sessions[0].activeRunId!==run)return;
+      const latest=(await queryTabs()).find(t=>t.id===tab.id);
+      if(state.sessions[0].activeRunId!==run)return;
+      const stale=state.selectedId!=='conversation-fixture'||!latest||latest.kind!==tab.kind||latest.url!==tab.url||latest.revision!==tab.revision;
+      state.events.push(event(crypto.randomUUID(),run,'tool_result',{callId:'call-fixture',isError:stale,text:stale?'标签或会话已变化，请重新获取列表':JSON.stringify({source:'untrusted_webpage',text:'仅 QA 内存文章正文，没有读取真实页面',links:[],truncated:false})}),event(crypto.randomUUID(),run,'completed',{}));delete state.sessions[0].activeRunId;changed();
+
     },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     async request(input:Request):Promise<Result>{
@@ -91,10 +97,10 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
       }
       if(input.type==='run.cancel'){
         if(input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId) throw new Error('没有匹配的样例任务');
-        state.events.push(event(crypto.randomUUID(),'approval-fixture','cancelled',{reason:'样例已取消；未执行真实操作'})); delete state.sessions[0].activeRunId;changed();return{};
+        state.events.push(event(crypto.randomUUID(),input.runId,'cancelled',{reason:'样例已取消；未执行真实操作'})); delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='run.approve'){
-        if(input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId||input.callId!=='call-fixture'||approvalPending) throw new Error('没有匹配的待审批样例');
+        if(basic==='read_webpage'||input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId||input.callId!=='call-fixture'||approvalPending) throw new Error('没有匹配的待审批样例');
         approvalPending=true;
         await new Promise(resolve=>setTimeout(resolve,approvalDelay));
         if(!state.sessions[0].activeRunId) return{};
@@ -106,7 +112,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         if(input.allowed&&basic==='files_trash')files.delete('notes.txt');
         if(input.allowed&&!web&&!basic) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
         state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_resolved',{callId:'call-fixture',allowed:input.allowed}));
-        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='read_webpage'?JSON.stringify({source:'untrusted_webpage',text:'仅 QA 内存文章正文，没有读取真实页面',links:[],truncated:false}):basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
+        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
         state.events.push(event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
@@ -118,5 +124,5 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
 export function QAWorkbench({web=false,basic=''}:{web?:boolean;basic?:string}){
  const[bridge]=useState(()=>fixture(1800,web,basic)),[tabs,setTabs]=useState<{tabId:string;title:string;kind:string}[]>([]),[chosen,choose]=useState(''),[message,setMessage]=useState(''),[pending,setPending]=useState(false);
  const perform=async(task:()=>Promise<void>)=>{if(pending)return;setPending(true);setMessage('');try{await task();}catch(e){setMessage(String(e));}finally{setPending(false);}};
- return <div className="qa-tool-workbench">{basic==='read_webpage'&&<div className="qa-banner"><p>两步网页工具 · 内存测试：先在右侧打开网页/文件/新标签，再获取实时列表。正文审批只返回静态样例，不提取 iframe。</p><button disabled={pending} onClick={()=>void perform(async()=>{const result=await bridge.inspectTabs();setTabs(result);choose(result.find(t=>t.kind==='web')?.tabId??'');})}>获取当前标签列表（内存测试）</button><select aria-label="指定列表中的网页" value={chosen} onChange={e=>choose(e.target.value)}><option value="">选择网页标签</option>{tabs.filter(t=>t.kind==='web').map(t=><option key={t.tabId} value={t.tabId}>{t.title} · {t.tabId.slice(0,8)}</option>)}</select><button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginRead(chosen))}>请求读取指定网页（模拟正文）</button><span role="status">{message||`列表共 ${tabs.length} 个标签`}</span></div>}<App initialClient={bridge}/></div>;
+ return <div className="qa-tool-workbench">{basic==='read_webpage'&&<div className="qa-banner"><p>两步网页工具 · 内存测试：先在右侧打开网页/文件/新标签，再获取实时列表。正文直接读取无需审批，只返回静态样例，不提取 iframe。</p><button disabled={pending} onClick={()=>void perform(async()=>{const result=await bridge.inspectTabs();setTabs(result);choose(result.find(t=>t.kind==='web')?.tabId??'');})}>获取当前标签列表（内存测试）</button><select aria-label="指定列表中的网页" value={chosen} onChange={e=>choose(e.target.value)}><option value="">选择网页标签</option>{tabs.filter(t=>t.kind==='web').map(t=><option key={t.tabId} value={t.tabId}>{t.title} · {t.tabId.slice(0,8)}</option>)}</select><button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginRead(chosen))}>请求读取指定网页（模拟正文）</button><span role="status">{message||`列表共 ${tabs.length} 个标签`}</span></div>}<App initialClient={bridge}/></div>;
 }
