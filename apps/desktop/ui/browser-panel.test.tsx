@@ -30,3 +30,22 @@ it('labels a Web new tab by the entered hostname and updates it on subsequent na
    expect(container.querySelector('iframe')?.getAttribute('src')).toBe(url);
  }
 });
+it('keeps new-tab outside the scroll strip and reveals selected tabs in either direction',async()=>{
+ vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement){
+   if(this.classList.contains('browser-tabs'))return {left:0,right:180,width:180} as DOMRect;
+   const text=this.querySelector('[role=tab]')?.textContent;
+   return {left:text==='Last'?400:-100,right:text==='Last'?530:30,width:130} as DOMRect;
+ });
+ const tabs=[{kind:'web' as const,id:'first',url:'',title:'First'},{kind:'web' as const,id:'last',url:'',title:'Last'}];
+ const dispatch=vi.fn();const props={dispatch,visible:true,blocked:false,close:vi.fn(),connected:false,active:false,request:vi.fn(async()=>({})),chooseWorkspace:vi.fn()};
+ await act(()=>root.render(<BrowserPanel {...props} state={{tabs,activeId:'last'}}/>));
+ const list=container.querySelector<HTMLElement>('[role=tablist]')!;
+ expect(list.scrollLeft).toBe(350);
+ const add=container.querySelector<HTMLButtonElement>('[aria-label=新标签页]')!;
+ expect(list.contains(add)).toBe(false);await act(()=>add.click());expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({type:'open',target:{kind:'web',url:''}}));
+ await act(()=>root.render(<BrowserPanel {...props} state={{tabs,activeId:'first'}}/>));
+ expect(list.scrollLeft).toBe(250);
+ await act(()=>container.querySelector('[role=tab]')!.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true})));
+ expect(dispatch).toHaveBeenLastCalledWith({type:'select',id:'last'});
+ expect(document.activeElement?.textContent).toBe('Last');
+});

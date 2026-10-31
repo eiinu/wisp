@@ -44,7 +44,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .link-confirmation { z-index: 100; }
 .browser-inspector { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
 .browser-inspector[hidden] { display: none; }
-.browser-tabs { display: flex; align-items: center; overflow-x: auto; flex: 0 0 auto; gap: 3px; padding: 6px; border-bottom: 1px solid #e7e7e7; }
+.browser-tabs { display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; flex: 0 0 auto; gap: 3px; padding: 6px; border-bottom: 1px solid #e7e7e7; }
 .browser-tab{display:flex;align-items:center;flex:0 1 190px;min-width:100px;max-width:240px;border-radius:9px 9px 0 0;background:transparent;color:#666}
 .browser-tab.is-active{background:#fff;color:#242424}
 .browser-tab:not(.is-active):hover{background:#e7e7e7}
@@ -84,8 +84,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .browser-tabbar{display:flex;flex:0 0 44px;min-width:0;height:44px;background:#efefef}
 .browser-tabbar .browser-tabs{flex:1;min-width:0;border:0;align-items:stretch;gap:2px;padding:6px 4px 0}
 .browser-tab-actions{display:flex;align-items:center;flex-shrink:0;padding:0 4px}
-.browser-tab-actions button,.browser-tabs>button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:30px;height:32px;padding:7px;border-radius:7px}
-.browser-tabs>button{align-self:center;margin-bottom:6px}
+.browser-tab-actions button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:30px;height:32px;padding:7px;border-radius:7px}
+.browser-tabs::-webkit-scrollbar{display:none}
+.browser-tabs{overscroll-behavior-x:contain}
+.browser-tabbar .browser-tabs{height:44px}
+.browser-tab{height:38px}
 .workspace-icon{flex-shrink:0;vertical-align:middle}
 .download-count{font-size:10px;margin-left:2px}
 .browser-tab-actions{gap:1px}

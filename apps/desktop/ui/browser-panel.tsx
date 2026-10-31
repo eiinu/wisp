@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type Dispatch } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, type Dispatch } from 'react';
 import type { Request, Result } from '@wisp/core';
 import type { BrowserBridge, BrowserSnapshot } from '../shared/browser.js';
 import { WorkspaceIcon } from './workspace-icon.js';
@@ -14,6 +14,7 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
   const [native, setNative] = useState<BrowserSnapshot>({ pages: [], downloads: [] });
   const [address, setAddress] = useState(''), [error, setError] = useState(''), [downloads, showDownloads] = useState(false);
   const [fallback, setFallback] = useState<Record<string, { url: string; revision: number; loaded: boolean }>>({});
+  const tablist = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null), opened = useRef(new Map<string, number>());
   const tab = state.tabs.find(t => t.id === state.activeId), page = native.pages.find(p => p.id === tab?.id);
   const displayedUrl = page?.url ?? (tab?.kind === 'web' ? fallback[tab.id]?.url ?? tab.url : '');
@@ -36,6 +37,22 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
     layout(); const observer = new ResizeObserver(layout); if (viewport.current) observer.observe(viewport.current); window.addEventListener('resize', layout);
     return () => { observer.disconnect(); window.removeEventListener('resize', layout); void browser.command({ type: 'layout' }).catch(() => {}); };
   }, [browser, visible, blocked, confirmation?.blocked, downloads, tab?.id, tab?.kind, page?.url]);
+  useLayoutEffect(() => {
+    const list = tablist.current;
+    if (!list || !visible) return;
+    const reveal = () => {
+      const selected = list.querySelector<HTMLElement>('.browser-tab.is-active');
+      if (!selected) return;
+      const viewport = list.getBoundingClientRect(), bounds = selected.getBoundingClientRect();
+      // Scroll only the tab strip, never the conversation or document ancestors.
+      if (bounds.left < viewport.left) list.scrollLeft += bounds.left - viewport.left;
+      else if (bounds.right > viewport.right) list.scrollLeft += bounds.right - viewport.right;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal); observer.observe(list);
+    const selected = list.querySelector('.browser-tab.is-active'); if (selected) observer.observe(selected);
+    return () => observer.disconnect();
+  }, [state.activeId, state.tabs, visible]);
   function navigate() {
     if (tab?.kind !== 'web') return;
     const url = safeWebUrl(address.includes('://') ? address : `https://${address}`);
@@ -49,11 +66,11 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
   const fileProps = { sessionId, workspace, connected, active, request, chooseWorkspace };
   return <aside className="inspector browser-inspector" hidden={!visible} aria-label="浏览工作区">
 
-    <div className="browser-tabbar"><div className="browser-tabs" role="tablist" aria-label="预览标签">{state.tabs.map((item, index) => <div className={`browser-tab ${item.id === tab?.id ? 'is-active' : ''}`} key={item.id}><button role="tab" aria-selected={item.id === tab?.id} tabIndex={item.id === tab?.id ? 0 : -1} onClick={() => { showDownloads(false); dispatch({ type: 'select', id: item.id }); }} onKeyDown={e => {
+    <div className="browser-tabbar"><div className="browser-tabs" ref={tablist} role="tablist" aria-label="预览标签">{state.tabs.map((item, index) => <div className={`browser-tab ${item.id === tab?.id ? 'is-active' : ''}`} key={item.id}><button role="tab" aria-selected={item.id === tab?.id} tabIndex={item.id === tab?.id ? 0 : -1} onClick={() => { showDownloads(false); dispatch({ type: 'select', id: item.id }); }} onKeyDown={e => {
       let next: number | undefined; if (e.key === 'ArrowRight') next = (index + 1) % state.tabs.length; if (e.key === 'ArrowLeft') next = (index + state.tabs.length - 1) % state.tabs.length; if (e.key === 'Home') next = 0; if (e.key === 'End') next = state.tabs.length - 1;
       if (next !== undefined) { e.preventDefault(); dispatch({ type: 'select', id: state.tabs[next].id }); (e.currentTarget.closest('[role=tablist]')?.querySelectorAll('[role=tab]')[next] as HTMLElement)?.focus(); }
       if (e.key === 'Delete') dispatch({ type: 'close', id: item.id });
-    }} title={tabTitle(item)}><WorkspaceIcon name={item.kind === 'web' ? 'globe' : item.kind === 'file' ? 'file' : 'folder'}/><span className="browser-tab-title">{tabTitle(item)}</span></button><button aria-label={`关闭 ${tabTitle(item)}`} onClick={() => dispatch({ type: 'close', id: item.id })}><WorkspaceIcon name="close"/></button></div>)}<button aria-label="新标签页" onClick={() => { showDownloads(false); dispatch({ type: 'open', id: `web:${crypto.randomUUID()}`, target: { kind: 'web', url: '' } }); }}><WorkspaceIcon name="plus"/></button></div><div className="browser-tab-actions"><button title="打开工作目录" aria-label="打开工作目录" onClick={() => { showDownloads(false); open({kind: 'workspace'}); }}><WorkspaceIcon name="folder"/></button><button title="下载管理器" aria-label="下载管理器" onClick={() => showDownloads(!downloads)} aria-pressed={downloads}><WorkspaceIcon name="download"/>{native.downloads.length > 0 && <span className="download-count">{native.downloads.length}</span>}</button><button title="返回对话 / 收起工作区" onClick={close} aria-label="关闭预览"><WorkspaceIcon name="close"/></button></div></div>
+    }} title={tabTitle(item)}><WorkspaceIcon name={item.kind === 'web' ? 'globe' : item.kind === 'file' ? 'file' : 'folder'}/><span className="browser-tab-title">{tabTitle(item)}</span></button><button aria-label={`关闭 ${tabTitle(item)}`} onClick={() => dispatch({ type: 'close', id: item.id })}><WorkspaceIcon name="close"/></button></div>)}</div><div className="browser-tab-actions"><button title="新标签页" aria-label="新标签页" onClick={() => { showDownloads(false); dispatch({ type: 'open', id: `web:${crypto.randomUUID()}`, target: { kind: 'web', url: '' } }); }}><WorkspaceIcon name="plus"/></button><button title="打开工作目录" aria-label="打开工作目录" onClick={() => { showDownloads(false); open({kind: 'workspace'}); }}><WorkspaceIcon name="folder"/></button><button title="下载管理器" aria-label="下载管理器" onClick={() => showDownloads(!downloads)} aria-pressed={downloads}><WorkspaceIcon name="download"/>{native.downloads.length > 0 && <span className="download-count">{native.downloads.length}</span>}</button><button title="返回对话 / 收起工作区" onClick={close} aria-label="关闭预览"><WorkspaceIcon name="close"/></button></div></div>
     {downloads ? <div className="download-list"><h3>下载管理器</h3>{!browser ? <p>Web 预览无法管理浏览器下载，请使用桌面版。</p> : !native.downloads.length ? <p>尚无下载。下载时会显示系统保存对话框。</p> : native.downloads.map(d => <article key={d.id}><strong>{d.name}</strong><p className="confirm-target">{d.url}</p><progress value={d.total > 0 ? d.received : undefined} max={d.total || undefined}/><p>{d.received.toLocaleString()} / {d.total > 0 ? d.total.toLocaleString() : '未知'} B · {d.state}</p>{d.state === 'progressing' && <button onClick={() => void command({ type: 'cancel-download', id: d.id })}>取消下载</button>}</article>)}</div> : <>
       {tab?.kind === 'web' && <><form className="browser-address" onSubmit={e => { e.preventDefault(); navigate(); }}><button type="button" aria-label="后退" disabled={!page?.back} onClick={() => void command({ type: 'back', id: tab.id })}><WorkspaceIcon name="back"/></button><button type="button" aria-label="前进" disabled={!page?.forward} onClick={() => void command({ type: 'forward', id: tab.id })}><WorkspaceIcon name="forward"/></button><button type="button" aria-label="刷新网页" disabled={!displayedUrl} onClick={() => browser ? void command({ type: 'reload', id: tab.id }) : setFallback(p => ({ ...p, [tab.id]: { url: displayedUrl, revision: (p[tab.id]?.revision ?? 0) + 1, loaded: false } }))}><WorkspaceIcon name="refresh"/></button><input aria-label="地址栏" placeholder="输入网址" value={address} onChange={e => setAddress(e.target.value)}/><button>打开</button></form>
         {!browser && <p className="web-note">Web 嵌入预览：不支持历史导航或下载管理。网站可能禁止嵌入；无法确认页面内容或重定向后的地址。</p>}
