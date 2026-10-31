@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FileEntry, FilePreview, Request, Result } from '@wisp/core';
 import type { LinkSource } from './preview-model.js';
 import { WorkspaceIcon } from './workspace-icon.js';
 import { Markdown } from './markdown.js';
 
+export interface FileTabControl { path:string; revision:number; assertSafe():void; apply(result:Result):void }
 const displayLimit = 100_000;
 export function FileContents({ file, source }: { file: FilePreview; source?: LinkSource }) {
   if (file.kind === 'image') return <img src={file.dataUrl} alt={file.path}/>;
@@ -14,7 +15,8 @@ export function FileContents({ file, source }: { file: FilePreview; source?: Lin
     {file.kind === 'markdown' ? <Markdown text={text} source={source}/> : <pre className="plain-text">{text}</pre>}</>;
 }
 
-export function FilePanel({ sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, filePath, onOpenFile }: {
+export function FilePanel({ sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, filePath, onOpenFile, registerControl }: {
+  registerControl?(control:FileTabControl):void;
   sessionId?: string; workspace?: string; inheritedWorkspace?: boolean; connected: boolean; active: boolean;
   request(request: Request): Promise<Result>; chooseWorkspace(): void; filePath?: string; onOpenFile?(path: string): void;
 }) {
@@ -53,6 +55,14 @@ export function FilePanel({ sessionId, workspace, inheritedWorkspace, connected,
     } catch (e) { if (current(id)) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (current(id)) setSaving(false); }
   }
+  const editVersion=useRef(0);
+  useLayoutEffect(()=>{editVersion.current++;},[path,editing,newFile,text,filePath,workspace]);
+  useLayoutEffect(()=>{
+    registerControl?.({path:filePath??path,revision:sequence.current+editVersion.current,
+      assertSafe(){if(!live.current||loading||saving||editing)throw new Error('标签正在加载或有未保存编辑，请先完成或放弃编辑');if(!connected)throw new Error('Host 未连接');},
+      apply(result){sequence.current++;setError('');setNotice('');if(filePath!==undefined){if(!result.file)throw new Error('Host 未返回文件');setFile(result.file);}else{if(!result.entries)throw new Error('Host 未返回目录');setEntries(result.entries);}}
+    });
+  });
   const editable = file?.text !== undefined && file.text.length <= displayLimit && new TextEncoder().encode(file.text).length <= 200000;
   return <>
     <div className="file-toolbar">{filePath === undefined ? <>

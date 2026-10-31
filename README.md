@@ -13,6 +13,8 @@ Wisp 是运行在自己电脑上的个人 Agent 工作台。通过对话调用�
 - **内容阅读**：文本、Markdown 和图片预览；对话与 Markdown 共用数学公式、代码高亮、表格和列表渲染，链接确认后在右侧打开。
 - **模型设置**：独立设置页配置 DeepSeek 或 OpenAI 兼容 Chat Completions 服务；桌面版可通过系统安全存储加密保存 DeepSeek 官方 API Key。
 
+- **标签操作**：AI 可按标签 ID 申请刷新、前进、后退或关闭网页，也可刷新/关闭文件与目录标签；导航与关闭逐次审批，不改变当前会话范围。
+
 ## 支持范围
 
 生产目标为 Electron 桌面端，当前提供 macOS Apple Silicon（arm64）DMG 构建。安装包目前未签名、未公证。

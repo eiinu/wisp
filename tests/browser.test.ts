@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { browserUrl } from '../apps/desktop/shared/browser.js';
-const mocks = vi.hoisted(() => ({ views: [] as any[], remote: undefined as any, View: vi.fn(), partition: vi.fn() }));
-vi.mock('electron', () => ({ WebContentsView: mocks.View, session: { fromPartition: mocks.partition } }));
+const mocks = vi.hoisted(() => ({ views: [] as any[], remote: undefined as any, View: vi.fn(), partition: vi.fn(), confirm: vi.fn() }));
+vi.mock('electron', () => ({ dialog:{showMessageBox:mocks.confirm}, WebContentsView: mocks.View, session: { fromPartition: mocks.partition } }));
 import { createBrowser } from '../apps/desktop/src/browser.js';
 beforeEach(() => {
   mocks.views.length = 0; vi.clearAllMocks();
@@ -82,4 +82,22 @@ it('lists only owned native pages and reads an explicitly listed nonactive page;
  mocks.views[1].webContents.emit('did-start-navigation',{},'https://b.test/new',false,true);await expect(controller.pageOperation('page.bind',b,signal)).rejects.toThrow('重新获取');
  controller.command({type:'close',id:'b'});await expect(controller.pageOperation('page.bind',b,signal)).rejects.toThrow('没有');
  controller.command({type:'context',sessionId:'other'});expect(await controller.pageOperation('page.list',{sessionId:'other'},signal)).toEqual({pages:[]});controller.dispose();
+});
+
+it('tab actions bind nonactive native identity, reject unavailable history and invalidate stale versions',async()=>{
+ const {controller}=setup(),signal=new AbortController().signal;controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://a.test'});controller.command({type:'open',id:'b',url:'https://b.test'});
+ const identity=await listed(controller,'s','b'),wc=mocks.views[1].webContents;
+ await expect(controller.pageOperation('page.action',{...identity,action:'forward'},signal)).rejects.toThrow('没有前进');
+ expect(await controller.pageOperation('page.action',{...identity,action:'back'},signal)).toEqual({status:'navigation_requested'});expect(wc.navigationHistory.goBack).toHaveBeenCalledOnce();expect(mocks.views[0].webContents.navigationHistory.goBack).not.toHaveBeenCalled();
+ await expect(controller.pageOperation('page.action',{...identity,action:'reload'},signal)).rejects.toThrow('改变');
+ const fresh=await listed(controller,'s','b');expect(await controller.pageOperation('page.action',{...fresh,action:'reload'},signal)).toEqual({status:'navigation_requested'});expect(wc.reload).toHaveBeenCalledOnce();controller.dispose();
+});
+it('native close requires explicit confirmation, respects unload refusal and checks identity after dialog',async()=>{
+ const {controller}=setup(),signal=new AbortController().signal;controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://a.test'});const identity=await listed(controller),wc=mocks.views[0].webContents;
+ mocks.confirm.mockResolvedValue({response:0});expect(await controller.pageOperation('page.action',{...identity,action:'close'},signal)).toEqual({status:'cancelled'});expect(wc.close).not.toHaveBeenCalled();
+ mocks.confirm.mockResolvedValue({response:1});const event={preventDefault:vi.fn()};wc.close.mockImplementation(()=>wc.emit('will-prevent-unload',event));
+ expect(await controller.pageOperation('page.action',{...identity,action:'close'},signal)).toEqual({status:'cancelled'});expect(event.preventDefault).not.toHaveBeenCalled();expect(wc.close).toHaveBeenCalledWith({waitForBeforeUnload:true});
+ mocks.confirm.mockImplementation(async()=>{controller.command({type:'context',sessionId:'other'});return{response:1};});await expect(controller.pageOperation('page.action',{...identity,action:'close'},signal)).rejects.toThrow('改变');
+ controller.command({type:'context',sessionId:'s'});mocks.confirm.mockResolvedValue({response:1});wc.close.mockImplementation(()=>wc.emit('destroyed'));
+ expect(await controller.pageOperation('page.action',{...identity,action:'close'},signal)).toEqual({status:'closed'});expect(controller.command({type:'snapshot'}).pages).toEqual([]);controller.dispose();
 });

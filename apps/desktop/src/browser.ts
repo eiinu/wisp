@@ -1,5 +1,5 @@
 import { extractPage, publicPageUrl, boundedRead } from './page-content.js';
-import { WebContentsView, session, type BrowserWindow, type DownloadItem } from 'electron';
+import { WebContentsView, session, dialog, type BrowserWindow, type DownloadItem } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { browserUrl, type BrowserCommand, type BrowserDownload, type BrowserPage, type BrowserSnapshot } from '../shared/browser.js';
 
@@ -91,6 +91,34 @@ export function createBrowser(window: BrowserWindow) {
   async function pageOperation(operation:string,payload:Record<string,unknown>,signal:AbortSignal) {
     signal.throwIfAborted(); if(disposed || !currentSession || payload.sessionId!==currentSession) throw new Error('网页不属于当前会话');
     if(operation==='page.list')return {pages:[...pages.entries()].filter(([,p])=>p.owner===currentSession).map(([id,p])=>({id,ref:p.publicId,version:p.generation,title:p.view.webContents.getTitle().slice(0,300),url:publicPageUrl(p.view.webContents.getURL()||p.state.url),loading:p.view.webContents.isLoading(),error:!!p.state.error}))};
+    if(operation==='page.action') {
+      const entry=[...pages].find(([,p])=>p.publicId===payload.tabId),id=entry?.[0],page=entry?.[1];
+      const valid=()=>page&&id&&pages.get(id)===page&&page.owner===currentSession&&payload.sessionId===currentSession&&!page.view.webContents.isDestroyed()&&payload.version===page.generation;
+      if(!valid())throw new Error('标签已关闭或导航改变，请重新获取列表');
+      const wc=page!.view.webContents,action=payload.action;
+      if(!['reload','back','forward','close'].includes(String(action)))throw new Error('不支持的标签操作');
+      if(action==='back'&&!wc.navigationHistory.canGoBack())throw new Error('此标签没有后退历史');
+      if(action==='forward'&&!wc.navigationHistory.canGoForward())throw new Error('此标签没有前进历史');
+      if(action==='close') {
+        // BrowserView unload handling varies by Electron version. Explicit native consent
+        // protects unsaved content even when the embedded view ignores beforeunload.
+        const choice=await dialog.showMessageBox(window,{type:'warning',title:'关闭网页标签',message:'关闭此网页？未保存的内容可能丢失。',detail:`${wc.getTitle().slice(0,300)}\n${publicPageUrl(wc.getURL())}`,buttons:['保留标签','关闭标签'],defaultId:0,cancelId:0,noLink:true});
+        signal.throwIfAborted();if(!valid())throw new Error('确认期间标签或会话已改变');
+        if(choice.response!==1)return {status:'cancelled'};
+        return new Promise<{status:string}>((resolve,reject)=>{
+          const cleanup=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);wc.removeListener('destroyed',done);wc.removeListener('will-prevent-unload',prevented);};
+          const done=()=>{cleanup();pages.delete(id!);if(!window.isDestroyed())window.contentView.removeChildView(page!.view);emit();resolve({status:'closed'});};
+          const prevented=()=>{cleanup();resolve({status:'cancelled'});}; // Never preventDefault: that would override the page's refusal.
+          const abort=()=>{cleanup();reject(new Error('关闭等待已取消；请重新获取标签状态'));};
+          const timer=setTimeout(()=>{cleanup();reject(new Error('关闭状态未知；请重新获取标签列表'));},8000);
+          wc.once('destroyed',done);wc.once('will-prevent-unload',prevented);signal.addEventListener('abort',abort,{once:true});
+          wc.close({waitForBeforeUnload:true});
+        });
+      }
+      signal.throwIfAborted();page!.generation++;page!.state.error=undefined;
+      if(action==='reload')wc.reload();else if(action==='back')wc.navigationHistory.goBack();else wc.navigationHistory.goForward();
+      emit();return {status:'navigation_requested'};
+    }
     if(operation==='page.bind') {
       for(const [id,t] of readTickets) if(t.expires<Date.now())readTickets.delete(id);
       if(readTickets.size>=32)throw new Error('并发读取过多，请稍后重试');

@@ -58,3 +58,22 @@ it('reports all visible tab types and live Web address changes through the metad
  await act(()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
  expect(read()[2]).toMatchObject({kind:'web',url:'https://example.org/article',revision:1});
 });
+it('refreshes a nonactive file in place, preserves active selection and refuses to discard edits',async()=>{
+ let read:()=>any[]=()=>[],handler:import('./tab-action-delivery.js').TabActionHandler|undefined;
+ const dispatch=vi.fn(),request=vi.fn(async(input:any)=>input.type==='files.read'?{file:{kind:'text' as const,path:input.path,text:'old',size:3}}:{entries:[{name:'sub',path:'sub',kind:'directory' as const,size:0}]});
+ const props={sessionId:'s',workspace:'/work',state:{tabs:[{id:'f',kind:'file' as const,path:'note.txt',sessionId:'s',workspace:'/work',title:'Note'},{id:'d',kind:'workspace' as const,title:'Directory'}],activeId:'d'},dispatch,visible:true,blocked:false,close:vi.fn(),connected:true,active:false,request,chooseWorkspace:vi.fn(),registerTabs:(r:()=>any[])=>{read=r;},registerAction:(h:typeof handler)=>{handler=h;}};
+ await act(()=>root.render(<BrowserPanel {...props}/>));const expected=read().find(t=>t.id==='f');const execute=vi.fn(async()=>({actionStatus:'refreshed',file:{kind:'text' as const,path:'note.txt',text:'new text',size:8}}));
+ await act(()=>handler!({tab:expected,action:'reload'},execute,new AbortController().signal));expect(container.querySelector('.plain-text')?.textContent).toBe('new text');expect(dispatch).not.toHaveBeenCalled();
+ await act(()=>root.render(<BrowserPanel {...props} state={{...props.state,activeId:'f'}}/>));
+ const edit=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='编辑')!;await act(()=>edit.click());const dirty=read().find(t=>t.id==='f');
+ await expect(handler!({tab:dirty,action:'close'},execute,new AbortController().signal)).rejects.toThrow('未保存');expect(execute).toHaveBeenCalledOnce();expect(container.querySelector('.file-editor')).not.toBeNull();
+});
+it('tracks the actual current directory and discards results after a session switch',async()=>{
+ let read:()=>any[]=()=>[],handler:import('./tab-action-delivery.js').TabActionHandler|undefined;
+ const dispatch=vi.fn(),request=vi.fn(async()=>({entries:[{name:'sub',path:'sub',kind:'directory' as const,size:0}]}));
+ const props={sessionId:'s',workspace:'/work',state:{tabs:[{id:'d',kind:'workspace' as const,title:'Directory'}],activeId:'d'},dispatch,visible:true,blocked:false,close:vi.fn(),connected:true,active:false,request,chooseWorkspace:vi.fn(),registerTabs:(r:()=>any[])=>{read=r;},registerAction:(h:typeof handler)=>{handler=h;}};
+ await act(()=>root.render(<BrowserPanel {...props}/>));const initial=read()[0];await act(()=>Array.from(container.querySelectorAll('button')).find(b=>b.textContent?.includes('sub'))!.click());expect(read()[0].path).toBe('sub');expect(read()[0].revision).not.toBe(initial.revision);
+ const execute=vi.fn(async()=>({actionStatus:'refreshed',entries:[]}));await expect(handler!({tab:initial,action:'reload'},execute,new AbortController().signal)).rejects.toThrow('变化');expect(execute).not.toHaveBeenCalled();
+ let resolve!:(result:any)=>void;const pending=handler!({tab:read()[0],action:'reload'},()=>new Promise(r=>resolve=r),new AbortController().signal),failure=expect(pending).rejects.toThrow('变化');
+ await act(()=>root.render(<BrowserPanel {...props} sessionId="other"/>));await act(async()=>resolve({actionStatus:'refreshed',entries:[]}));await failure;expect(dispatch).not.toHaveBeenCalled();
+});

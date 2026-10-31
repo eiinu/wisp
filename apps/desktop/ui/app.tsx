@@ -1,3 +1,4 @@
+import {tabActionDelivery,type TabActionHandler} from './tab-action-delivery.js';
 import { InteractionCard, RunQuestions } from './questionnaire.js';
 import React, { useCallback, useReducer, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkbenchBridge, Request, Snapshot, RunEvent, Result } from '@wisp/core';
@@ -44,6 +45,8 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
   const preview = previews[selected??'']??{tabs:[]};
   const previewSession = useRef(selected); previewSession.current=selected;
   const dispatchPreview = useCallback((action:PreviewAction)=>updatePreview({session:previewSession.current??'',action:action.type==='open'?{...action,id:`${previewSession.current??''}:${action.id??tabId(action.target)}`}:action}),[]);
+  const tabAction=useRef<TabActionHandler|undefined>(undefined);
+  const registerAction=useCallback((handler:TabActionHandler|undefined)=>{tabAction.current=handler;},[]);
   const tabMetadata=useRef<()=>import('@wisp/core').PreviewTabMetadata[]>(()=>[]);
   const registerTabs=useCallback((read:()=>import('@wisp/core').PreviewTabMetadata[])=>{tabMetadata.current=read;},[]);
   const openPreview = useCallback((target: PreviewTarget) => { dispatchPreview({type: 'open', target}); setPanel(true); }, []);
@@ -88,8 +91,10 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
       } catch (e) { if (live && revision === generation) { setError(String(e)); setConnected(false); } }
     }
     const deliverPreview = previewDelivery(() => live ? selectedRef.current : undefined, input=>bridge!.request(input), url=>openPreview({kind:'web',url}));
+    const actions=tabActionDelivery(()=>live?selectedRef.current:undefined,input=>bridge!.request(input),()=>tabAction.current);
     const deliverTabs=tabListDelivery(()=>live?selectedRef.current:undefined,input=>bridge!.request(input),()=>tabMetadata.current());
     const unsubscribe = bridge.subscribe(notice => {
+      if(notice.type==='preview.action'||notice.type==='preview.action.cancel')void actions.deliver(notice);
       if(notice.type==='preview.tabs') void deliverTabs(notice);
       if (notice.type === 'preview.open') void deliverPreview(notice);
       if (!live) return;
@@ -101,7 +106,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
       }
     });
     void refresh();
-    return () => { live = false; generation++; unsubscribe(); };
+    return () => { live = false; generation++; actions.dispose(); unsubscribe(); };
   }, [bridge, connectionAttempt]);
   useEffect(() => { followStream.current = true; setAwayFromBottom(false); bottom.current?.scrollIntoView({ block: 'end' }); }, [selected]);
   useEffect(() => { if (followStream.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [events.length]);
@@ -164,7 +169,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
 
       <div className="sidebar-bottom"><button ref={settingsTrigger} onClick={event => openModal('settings', event.currentTarget)}><WorkspaceIcon name="settings"/><span>设置<small>{snapshot.config?.model ?? '尚未配置模型'}</small></span></button><button onClick={event => openModal('connect', event.currentTarget)}><span className={`connection-dot ${connected ? 'online' : ''}`}/><span>{connected ? '本机 Host 已连接' : '本机 Host 未连接'}<small>{connected ? '数据保存在你的电脑' : '当前仅查看工作台界面'}</small></span></button></div>
     </aside>
-    <SplitWorkspace visible={panel} right={({ dragging }) => <BrowserPanel registerTabs={registerTabs} state={preview} dispatch={dispatchPreview} visible={!!panel} blocked={!!modal || projectDialog || dragging || settingsOpen} close={() => setPanel(false)} sessionId={selected} workspace={current?.workspace} inheritedWorkspace={!!current?.projectId} connected={connected} active={!!active} request={api} chooseWorkspace={chooseWorkspace}/>}>
+    <SplitWorkspace visible={panel} right={({ dragging }) => <BrowserPanel registerAction={registerAction} registerTabs={registerTabs} state={preview} dispatch={dispatchPreview} visible={!!panel} blocked={!!modal || projectDialog || dragging || settingsOpen} close={() => setPanel(false)} sessionId={selected} workspace={current?.workspace} inheritedWorkspace={!!current?.projectId} connected={connected} active={!!active} request={api} chooseWorkspace={chooseWorkspace}/>}>
     <div className="workspace"><header className="topbar"><div><button className="icon mobile" onClick={() => setSidebar(true)} aria-label="打开侧栏"><WorkspaceIcon name="menu"/></button><ModelSelector key={`${snapshot.config?.provider}:${snapshot.config?.baseUrl}:${snapshot.keyPresent}`} config={snapshot.config} disabled={!connected || !modelReady || busy || modalPending || snapshot.sessions.some(session => !!session.activeRunId) || snapshot.config?.model === 'wisp-dev-simulator'} request={api} onError={setError}/></div><div className="top-actions"><button className={panel ? 'active' : ''} onClick={showWorkspace} aria-label="切换工作区" aria-expanded={panel} title={panel ? '收起工作区' : '展开工作区'}><WorkspaceIcon name="workspace"/> <span>工作区</span></button></div></header>
       {connected && snapshot.config?.model === 'wisp-dev-simulator' && <div className="connection-banner"><span>开发模拟 · 脚本模型，非真实 DeepSeek；文件工具真实执行，仅用于临时目录验证。</span></div>}
       {!connected && <div className="connection-banner"><span>{window.wisp ? error ? '本机 Host 连接失败，请重试；若 Host 已停止，请重新启动 Wisp。' : '正在连接本机 Host。如出现 Wisp Safe Storage 系统提示，请按需授权读取已保存的 Key；密码仅输入系统弹窗。' : '此界面未连接本机 Host，不能执行任务或读取文件。'}</span>{window.wisp ? <button onClick={() => { setError(''); setConnectionAttempt(value => value + 1); }}>重新连接</button> : <button onClick={event => openModal('connect', event.currentTarget)}>连接 Host <WorkspaceIcon name="forward"/></button>}</div>}

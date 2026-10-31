@@ -2,11 +2,13 @@ import React, { useEffect, useLayoutEffect, useRef, useState, type Dispatch } fr
 import type { Request, Result, PreviewTabMetadata } from '@wisp/core';
 import type { BrowserBridge, BrowserSnapshot } from '../shared/browser.js';
 import { WorkspaceIcon } from './workspace-icon.js';
-import { FilePanel } from './file-panel.js';
+import type {TabActionHandler} from './tab-action-delivery.js';
+import { FilePanel, type FileTabControl } from './file-panel.js';
 import { useLinkConfirmation } from './link-confirmation.js';
 import { safeWebUrl, type PreviewAction, type PreviewState, type PreviewTarget, type PreviewTab } from './preview-model.js';
 
-export function BrowserPanel({ registerTabs, state, dispatch, visible, blocked, close, sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
+export function BrowserPanel({ registerAction, registerTabs, state, dispatch, visible, blocked, close, sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
+  registerAction?(handler:TabActionHandler|undefined):void;
   registerTabs?(read:()=>PreviewTabMetadata[]):void;
   state: PreviewState; dispatch: Dispatch<PreviewAction>; visible: boolean; blocked: boolean; close(): void;
   sessionId?: string; workspace?: string; inheritedWorkspace?: boolean; connected: boolean; active: boolean; request(request: Request): Promise<Result>; chooseWorkspace(): void; browser?: BrowserBridge;
@@ -15,6 +17,7 @@ export function BrowserPanel({ registerTabs, state, dispatch, visible, blocked, 
   const [native, setNative] = useState<BrowserSnapshot>({ pages: [], downloads: [] });
   const [address, setAddress] = useState(''), [error, setError] = useState(''), [downloads, showDownloads] = useState(false);
   const [fallback, setFallback] = useState<Record<string, { url: string; revision: number; loaded: boolean }>>({});
+  const fileControls=useRef(new Map<string,FileTabControl>());
   const tablist = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null), opened = useRef(new Map<string, number>());
   const tab = state.tabs.find(t => t.id === state.activeId), page = native.pages.find(p => p.id === tab?.id);
@@ -65,7 +68,26 @@ export function BrowserPanel({ registerTabs, state, dispatch, visible, blocked, 
   }
   const open = (target: PreviewTarget | {kind: 'workspace'}) => dispatch({ type: 'open', target });
   const tabTitle = (item: PreviewTab) => native.pages.find(p => p.id === item.id)?.title || (item.kind === 'web' && fallback[item.id]?.url ? new URL(fallback[item.id].url).hostname : item.title);
-  useLayoutEffect(()=>{registerTabs?.(()=>state.tabs.map(item=>{const p=native.pages.find(p=>p.id===item.id),url=item.kind==='web'?(p?.url??fallback[item.id]?.url??item.url):undefined;return {id:item.id,kind:item.kind==='web'&&!url?'new':item.kind,title:tabTitle(item).slice(0,300),active:item.id===state.activeId,...(item.kind==='file'?{path:item.path}:{}),...(url?{url}:{}),revision:item.kind==='web'?(fallback[item.id]?.revision??item.revision??0):0};}));return()=>registerTabs?.(()=>[]);},[registerTabs,state,native,fallback,sessionId]);
+  const readMetadata=()=>state.tabs.map(item=>{const p=native.pages.find(p=>p.id===item.id),url=item.kind==='web'?(p?.url??fallback[item.id]?.url??item.url):undefined,control=fileControls.current.get(item.id);return {id:item.id,kind:item.kind==='web'&&!url?'new' as const:item.kind,title:tabTitle(item).slice(0,300),active:item.id===state.activeId,...(item.kind==='file'||item.kind==='workspace'?{path:control?.path??(item.kind==='file'?item.path:'')}:{}),...(url?{url}:{}),revision:item.kind==='web'?(fallback[item.id]?.revision??item.revision??0):control?.revision??0};});
+  const liveMetadata=useRef(readMetadata);liveMetadata.current=readMetadata;
+  useLayoutEffect(()=>{registerTabs?.(()=>liveMetadata.current());return()=>registerTabs?.(()=>[]);},[registerTabs]);
+  useLayoutEffect(()=>{
+    let live=true;
+    registerAction?.(async(delivery,execute,signal)=>{
+      const expected=delivery.tab;
+      const check=()=>{signal.throwIfAborted();const t=liveMetadata.current().find(t=>t.id===expected.id);if(!live||!t||t.kind!==expected.kind||t.path!==expected.path||t.url!==expected.url||t.revision!==expected.revision)throw new Error('标签已关闭或已变化');};
+      check();const control=fileControls.current.get(expected.id);
+      if(expected.kind==='file'||expected.kind==='workspace') {if(!control)throw new Error('文件标签未就绪');control.assertSafe();}
+      const result=await execute();
+      // Native navigation changes URL by design; only the session/tab presence is
+      // checked after execution. File data is applied only to the unchanged panel.
+      signal.throwIfAborted();if(!live||!liveMetadata.current().some(t=>t.id===expected.id))throw new Error('标签或会话已变化');
+      if(expected.kind!=='web')check();
+      if(result.actionStatus==='closed')dispatch({type:'close',id:expected.id});
+      else if(result.actionStatus==='refreshed'){control!.assertSafe();control!.apply(result);}
+    });
+    return()=>{live=false;registerAction?.(undefined);};
+  },[registerAction,sessionId,workspace]);
   const fileProps = { sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace };
   return <aside className="inspector browser-inspector" hidden={!visible} aria-label="浏览工作区">
 
@@ -79,9 +101,8 @@ export function BrowserPanel({ registerTabs, state, dispatch, visible, blocked, 
         {!browser && <p className="web-note">Web 嵌入预览：不支持历史导航或下载管理。网站可能禁止嵌入；无法确认页面内容或重定向后的地址。</p>}
         {(error || page?.error) && <p role="alert" className="error">{error || page?.error}</p>}{page?.loading && <p role="status" className="web-note">正在加载网页…</p>}
         <div className="browser-viewport" ref={viewport}>{!displayedUrl ? <div className="panel-empty"><span><WorkspaceIcon name="globe"/></span><h3>新标签页</h3><p>在地址栏输入网址并打开。</p></div> : !browser ? <iframe key={`${tab.id}:${fallback[tab.id]?.revision ?? 0}`} title="用户选择的网页" src={displayedUrl} sandbox="allow-scripts" referrerPolicy="no-referrer"/> : null}</div></>}
-      {tab?.kind === 'workspace' && <div className="browser-file"><FilePanel key={`${sessionId}:${workspace}`} {...fileProps} onOpenFile={path => { if (sessionId && workspace) open({ kind: 'file', sessionId, workspace, path }); }}/></div>}
-      {tab?.kind === 'file' && tab.sessionId === sessionId && tab.workspace === workspace && <div className="browser-file"><FilePanel key={tab.id} {...fileProps} filePath={tab.path}/></div>}
       {!tab && <div className="panel-empty"><h3>打开一个标签</h3><button onClick={() => open({kind: 'workspace'})}>工作目录</button></div>}
     </>}
+      {state.tabs.filter(item=>item.kind==='workspace'||item.kind==='file'&&item.sessionId===sessionId&&item.workspace===workspace).map(item=><div className="browser-file" hidden={downloads||item.id!==tab?.id} key={`${sessionId}:${workspace}:${item.id}`}><FilePanel {...fileProps} filePath={item.kind==='file'?item.path:undefined} registerControl={control=>fileControls.current.set(item.id,control)} onOpenFile={path=>{if(sessionId&&workspace)open({kind:'file',sessionId,workspace,path});}}/></div>)}
   </aside>;
 }

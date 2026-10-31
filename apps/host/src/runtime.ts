@@ -1,3 +1,4 @@
+import { TabActions } from './tab-actions.js';
 import { askUserTool } from './questionnaire.js';
 import { PreviewTabs } from './preview-tabs.js';
 import { pageReadTool } from './page-tool.js';
@@ -23,6 +24,7 @@ export class Runtime {
   private events: RunEvent[] = [];
   private previews = new PreviewRequests(notice => this.publish(notice), () => this.store.state.selectedId);
   private tabs:PreviewTabs;
+  private tabActions:TabActions;
   private agents = new Map<string, Agent>();
   private busy = new Set<string>();
   private tasks = new Set<Promise<void>>();
@@ -33,7 +35,7 @@ export class Runtime {
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
   private mcp: LocalMcp;
   private mcpSetup: McpSetup;
-  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}) { this.store = new StateStore(resolve(directory)); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); }
+  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}) { this.store = new StateStore(resolve(directory)); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
   async init() {
     await this.store.load(); await this.mcp.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
@@ -148,6 +150,9 @@ export class Runtime {
       await this.store.save(); this.publish({type: 'changed'}); return {};
     }
     if (session.archivedAt) throw new Error('此对话已归档，请先恢复后再操作');
+    if(command.type==='preview.action.claim')return this.tabActions.claim(session.id,command.ticket);
+    if(command.type==='preview.action.execute')return this.tabActions.execute(session.id,command.ticket,()=>this.workspace(session));
+    if(command.type==='preview.action.complete'){this.tabActions.complete(session.id,command.ticket,command.applied);return{};}
     if(command.type==='preview.tabs.claim'){this.tabs.claim(session.id,command.ticket);return{};}
     if(command.type==='preview.tabs.complete'){this.tabs.complete(session.id,command.ticket,command.tabs);return{};}
     if (command.type === 'preview.claim') return {preview:this.previews.claim(session.id,command.ticket)};
@@ -184,7 +189,7 @@ export class Runtime {
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
-        const tools = new Registry<Tool>(); tools.register('ask_user',askUserTool); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
+        const tools = new Registry<Tool>(); tools.register('ask_user',askUserTool); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('preview_tab_action',this.tabActions.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
 
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));

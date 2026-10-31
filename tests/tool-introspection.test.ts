@@ -73,7 +73,7 @@ it('matches real adapter HTTP definitions with and without directory grants, wit
     expect(list.filter((t:any)=>t.name==='tool_introspect')).toHaveLength(1);
     expect(JSON.stringify(list)).not.toContain('only-fake-key');
   });
-  expect(results[0]).toHaveLength(9);
+  expect(results[0]).toHaveLength(10);
   expect(results[0].some((t:any)=>t.name==='ask_user')).toBe(true);
   for(const list of results)for(const item of list)expect(Object.keys(item).sort()).toEqual(['description','inputSchema','name','requiresApproval']);
   expect(results[0].filter((t:any)=>t.name.startsWith('files_'))).toEqual([]);
