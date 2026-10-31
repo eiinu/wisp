@@ -31,3 +31,15 @@ it('shows real failure and allows disabling while connecting; disconnected contr
  const request=vi.fn(async()=>{throw new Error('test failure');});await act(()=>root.render(<McpSettings servers={[{...server,state:'connecting'}]} connected request={request} onDirty={()=>{}}/>));await click('禁用 测试服务');expect(request).toHaveBeenCalledWith({type:'mcp.disable',id:server.id});expect(element.textContent).toContain('禁用失败');
  await act(()=>root.render(<McpSettings servers={[server]} connected={false} request={request} onDirty={()=>{}}/>));expect(find('激活 测试服务').disabled).toBe(true);expect(find('添加本地 MCP').disabled).toBe(true);
 });
+it('restores cancelled activation/deletion focus without stealing focus after navigation',async()=>{
+ const request=vi.fn(async()=>({}));await act(()=>root.render(<McpSettings servers={[server]} connected request={request} onDirty={()=>{}}/>));
+ for(const action of ['激活 测试服务','删除 测试服务']){
+  const trigger=find(action);trigger.focus();await click(action);expect(document.activeElement).toBe(find('取消'));
+  await click('取消');expect(document.activeElement).toBe(trigger);
+ }
+ await click('激活 测试服务');await act(()=>find('取消').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+ expect(document.activeElement).toBe(find('激活 测试服务'));
+ await click('删除 测试服务');const elsewhere=document.createElement('button');document.body.append(elsewhere);elsewhere.focus();await click('取消');expect(document.activeElement).toBe(elsewhere);elsewhere.remove();
+ await click('激活 测试服务');element.hidden=true;await click('取消');expect(document.activeElement).not.toBe(find('激活 测试服务'));element.hidden=false;
+ expect(request).not.toHaveBeenCalled();
+});

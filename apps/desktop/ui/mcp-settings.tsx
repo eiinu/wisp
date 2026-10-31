@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import type {McpConfig, McpServerInfo, Request, Result} from '@wisp/core';
 import {WorkspaceIcon} from './workspace-icon.js';
 import './mcp-settings.css';
@@ -9,6 +9,13 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
  const [variables,setVariables]=useState<{name:string;value:string}[]>([]),[replace,setReplace]=useState(false),[remember,setRemember]=useState(true);
  const [pending,setPending]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState(''),[confirm,setConfirm]=useState<{id:string;action:'activate'|'delete'}>();
  const lock=useRef(false),heading=useRef<HTMLHeadingElement>(null),add=useRef<HTMLButtonElement>(null),generation=useRef(0);
+ const confirmation=useRef<HTMLDivElement>(null),confirmationTrigger=useRef<HTMLButtonElement|null>(null),restoreConfirmation=useRef(false);
+ useLayoutEffect(()=>{
+  if(confirm||!restoreConfirmation.current)return;
+  restoreConfirmation.current=false;const trigger=confirmationTrigger.current;
+  if(trigger?.isConnected&&!trigger.disabled&&!trigger.closest('[hidden],[inert]')&&(document.activeElement===document.body||document.activeElement===document.documentElement))trigger.focus();
+ },[confirm]);
+ const cancelConfirmation=()=>{restoreConfirmation.current=!!confirmation.current?.contains(document.activeElement);setConfirm(undefined);};
  useEffect(()=>{onDirty(!!draft);},[draft,onDirty]);
  const edit=(server?:McpServerInfo)=>{setId(server?.id);setDraft(server?{name:server.name,command:server.command,args:server.args,cwd:server.cwd}:{...blank});setArgs(JSON.stringify(server?.args??[],null,2));setVariables([]);setReplace(!server);setRemember(server?.envStorage!=='session');setError('');setStatus('');setConfirm(undefined);};
  const reset=()=>{setDraft(null);setVariables([]);setError('');setTimeout(()=>add.current?.focus(),0);};
@@ -28,14 +35,14 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
    <p className="settings-note">{server.message??'未启动进程'} · {server.tools.length} 个工具</p>
    <p className="settings-note">环境变量：{server.envNames.length?`${server.envNames.join('、')} · ${server.envStorage==='secure'?'系统安全存储':'仅本次会话'}`:'无'}</p>
    <div className="mcp-actions">
-    {server.state==='connected'||server.state==='connecting'?<button disabled={!connected} onClick={()=>{const current=++generation.current;void request({type:'mcp.disable',id:server.id}).then(()=>{if(current===generation.current)setStatus('服务已禁用；已请求停止进行中的调用，不能撤销已发生的副作用。');},()=>setError('禁用失败，请刷新状态确认'));}}>禁用 {server.name}</button>:<button disabled={!connected||pending||!!draft} onClick={()=>setConfirm({id:server.id,action:'activate'})}>激活 {server.name}</button>}
-    <button disabled={!connected||pending||!!draft} onClick={()=>edit(server)}>编辑 {server.name}</button><button disabled={!connected||pending||!!draft} onClick={()=>setConfirm({id:server.id,action:'delete'})}>删除 {server.name}</button>
+    {server.state==='connected'||server.state==='connecting'?<button disabled={!connected} onClick={()=>{const current=++generation.current;void request({type:'mcp.disable',id:server.id}).then(()=>{if(current===generation.current)setStatus('服务已禁用；已请求停止进行中的调用，不能撤销已发生的副作用。');},()=>setError('禁用失败，请刷新状态确认'));}}>禁用 {server.name}</button>:<button disabled={!connected||pending||!!draft} onClick={event=>{confirmationTrigger.current=event.currentTarget;setConfirm({id:server.id,action:'activate'});}}>激活 {server.name}</button>}
+    <button disabled={!connected||pending||!!draft} onClick={()=>edit(server)}>编辑 {server.name}</button><button disabled={!connected||pending||!!draft} onClick={event=>{confirmationTrigger.current=event.currentTarget;setConfirm({id:server.id,action:'delete'});}}>删除 {server.name}</button>
     {server.state==='connected'&&<button disabled={pending||!connected} onClick={()=>void task(async()=>{await request({type:'mcp.refresh',id:server.id});setStatus('工具列表已刷新');})}>刷新工具</button>}
    </div>
    {!!server.tools.length&&<details><summary>工具列表 · {server.tools.length}</summary><ul>{server.tools.map(tool=><li key={tool.name}><strong>{tool.remoteName}</strong><p>{tool.description}</p><code>{tool.name}</code></li>)}</ul></details>}
-   {confirm?.id===server.id&&<div className="mcp-confirm" role="region" aria-label={confirm.action==='activate'?'确认运行本地服务':'确认删除配置'}>
+   {confirm?.id===server.id&&<div ref={confirmation} className="mcp-confirm" onKeyDown={event=>{if(event.key==='Escape'&&!pending){event.preventDefault();event.stopPropagation();cancelConfirmation();}}} role="region" aria-label={confirm.action==='activate'?'确认运行本地服务':'确认删除配置'}>
     {confirm.action==='activate'?<><p>确认信任并运行以下本机命令？这是进程启动授权，不是项目目录沙箱。</p><pre>{JSON.stringify({command:server.command,args:server.args,cwd:server.cwd??'用户主目录'},null,2)}</pre></>:<p>删除「{server.name}」配置和保存的环境变量，并停止服务。不会删除服务程序或你的项目文件。</p>}
-    <div className="mcp-actions"><button autoFocus disabled={pending} onClick={()=>setConfirm(undefined)}>取消</button><button disabled={pending||!connected} onClick={()=>void task(async()=>{const action=confirm.action;setConfirm(undefined);await request(action==='activate'?{type:'mcp.activate',id:server.id,confirmed:true}:{type:'mcp.delete',id:server.id});setStatus(action==='activate'?'连接操作已结束，请查看服务状态':'配置已删除');})}>{confirm.action==='activate'?'信任并激活':'确认删除'}</button></div>
+    <div className="mcp-actions"><button autoFocus disabled={pending} onClick={cancelConfirmation}>取消</button><button disabled={pending||!connected} onClick={()=>void task(async()=>{const action=confirm.action;setConfirm(undefined);await request(action==='activate'?{type:'mcp.activate',id:server.id,confirmed:true}:{type:'mcp.delete',id:server.id});setStatus(action==='activate'?'连接操作已结束，请查看服务状态':'配置已删除');})}>{confirm.action==='activate'?'信任并激活':'确认删除'}</button></div>
    </div>}
   </article>)}</div>
   {draft&&<form onSubmit={event=>{event.preventDefault();void task(save);}}>
