@@ -46,7 +46,7 @@ node scripts/package-manifest.mjs
 
 `tests/desktop-startup.test.ts` 单独验证 Electron ESM 入口必须在 `ready` 之前完成模块加载，然后才创建窗口与启动 Host；窗口创建不等待 Host ready。该测试模拟 Electron 生命周期，并覆盖页面加载失败后的报错退出，不能替代 macOS GUI 实机验收。主入口不得在顶层 `await app.whenReady()`：Electron 45.1.0 的 [ESM 加载实现](https://github.com/electron/electron/blob/v45.1.0/lib/browser/init.ts) 在入口导入结束后才调用 `appCodeLoaded()`，顶层等待 ready 会形成启动死锁。
 
-安装包包含 MCP 协议服务，但不包含独立 Playwright Chromium 浏览器二进制；Electron 内嵌 Chromium 不等于可供 Playwright 工具使用的浏览器。本机未准备匹配浏览器时自动化连接会失败，不能报告已连接。浏览器 UI 接线仍按主 README 中的状态说明。
+安装包包含 MCP 协议服务，但不包含独立 Playwright Chromium 浏览器二进制；Electron 内嵌 Chromium 不等于可供 Playwright 工具使用的浏览器。本机未准备匹配浏览器时自动化连接会失败，不能报告已连接。浏览器 UI 接线状态见 [Playwright MCP 接入](browser-automation.md)。
 
 ## 签名、系统凭据与验收边界
 

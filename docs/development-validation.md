@@ -30,7 +30,7 @@ Web 默认 `127.0.0.1:5190`（`WISP_DEV_PORT` 可改），模型夹具首次分�
 
 桌面：输入官方 DeepSeek Key，勾选系统安全存储；加密密文仅保存在 Electron userData/credentials/deepseek.enc，主进程使用 OS 密钥，Host 内存解密使用。Key 不经过 Wisp 服务器，生成请求直接发官方 API。输入框从不填充已存 Key，只显示 •••• 与状态；删除同步移除密文及活动 Key。非官方 endpoint 不能保存/复用官方 Key，自定义服务必须单独提供会话凭据。请求禁止 HTTP 重定向。
 
-Web：没有系统钥匙串能力，明确只保存当前进程，重启需重填；请求 rememberKey 会报错。安全存储不可用、Linux basic_text/unknown、加解密失败均不降级为明文。Electron 45 同步 safeStorage API 的弃用与平台保护差异见 [官方文档](https://www.electronjs.org/docs/latest/api/safe-storage)；当前未跨平台实机验证。测试仅使用独立假 OS 加密服务和假字符串，未读取任何真实凭据。
+Web：没有系统钥匙串能力，明确只保存当前进程，重启需重填；请求 rememberKey 会报错。安全存储不可用、Linux basic_text/unknown、加解密失败均不降级为明文。当前 macOS 使用异步 safeStorage，其他平台保留受安全后端检查的同步接口；平台保护差异见 [官方文档](https://www.electronjs.org/docs/latest/api/safe-storage)；当前未跨平台实机验证。测试仅使用独立假 OS 加密服务和假字符串，未读取任何真实凭据。
 
 ## 已验证与限制
 

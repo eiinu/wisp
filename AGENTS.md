@@ -23,3 +23,9 @@
 git config --local user.name eiinu
 git config --local user.email eiinu@qq.com
 ```
+
+## README 维护
+
+- 新增重要功能或能力，或显著改变已有能力时，在同次改动中同步更新 README。
+- 简单 bug 修复和小细节改动不要求更新 README。
+- README 简洁介绍项目定位、当前功能与支持范围，描述已实现的事实，不作为更新日志。详细开发、运行、测试、架构与打包流程放在 `docs/`，README 仅保留必要链接。
