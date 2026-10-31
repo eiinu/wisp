@@ -2,7 +2,8 @@ import { officialDeepSeek, type CredentialVault } from './credentials.js';
 import { ConversationStore } from './conversation.js';
 import { asModelProvider } from './model.js';
 import { randomUUID } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { lstat } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 import { Registry, requestSchema, type Notice, type Result, type SessionInfo, type Snapshot, type RunEvent, type Message, type ModelProvider, type GenerationProvider, type Tool } from '@wisp/core';
 import { Agent } from './agent.js';
 import { EventLog } from './log.js';
@@ -42,8 +43,9 @@ export class Runtime {
   private session(id: string) { const session = this.store.state.sessions.find(s => s.id === id); if (!session) throw new Error('会话不存在'); return session; }
   private idle(id: string) { if (this.busy.has(id)) throw new Error('会话仍在执行，请先取消或等待完成'); }
   private redact = (text: string) => this.key ? text.split(this.key).join('[REDACTED]') : text;
-  snapshot(): Snapshot { return structuredClone({ ...this.store.state, keyPresent: !!this.key, credential: this.credential, events: this.events, browserConnected: this.browsers.get(this.store.state.selectedId ?? '')?.status.state === 'connected', browserSessions: Object.fromEntries([...this.browsers].map(([id, browser]) => [id, browser.status])) }); }
-  private async workspace(session: SessionInfo) { if (!session.workspace) throw new Error('请先授权此会话的工作目录'); return WorkspaceFiles.grant(session.workspace, this.store.directory); }
+  private project(id: string) { const project = this.store.state.projects.find(p => p.id === id); if (!project) throw new Error('项目不存在'); return project; }
+  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, browserConnected: this.browsers.get(this.store.state.selectedId ?? '')?.status.state === 'connected', browserSessions: Object.fromEntries([...this.browsers].map(([id, browser]) => [id, browser.status])) }); }
+  private async workspace(session: SessionInfo) { if (session.projectId) { const project = this.project(session.projectId); try { return await WorkspaceFiles.grant(project.workspace, this.store.directory, project.identity); } catch { throw new Error('项目目录不可用或已改变，请恢复原目录或新建项目'); } } if (!session.workspace) throw new Error('请先授权此会话的工作目录'); return WorkspaceFiles.grant(session.workspace, this.store.directory); }
   private provider(): ModelProvider {
     const config = this.store.state.config; if (!config) throw new Error('请先配置模型；也可以明确选择离线验证模式');
     if (config.provider === 'offline') return asModelProvider(offlineProvider);
@@ -57,8 +59,20 @@ export class Runtime {
     if (this.keyChanging && command.type !== 'snapshot') throw new Error('凭据正在更新，请稍后重试');
     if (command.type === 'snapshot') return { snapshot: this.snapshot() };
     if (command.type === 'model.list') return { models: await this.provider().listModels({ signal: AbortSignal.timeout(10000) }) };
+    if (command.type === 'project.create') {
+      const files = await WorkspaceFiles.grant(command.path, this.store.directory); await files.resolve('');
+      const stat = await lstat(files.root, { bigint: true }), id = randomUUID();
+      this.store.state.projects.push({ id, name: command.name ?? basename(files.root).slice(0, 100), workspace: files.root, collapsed: false, createdAt: new Date().toISOString(), identity: { dev: stat.dev.toString(), ino: stat.ino.toString() } });
+      await this.store.save(); this.publish({ type: 'changed' }); return { projectId: id };
+    }
+    if (command.type === 'project.rename' || command.type === 'project.collapse') {
+      const project = this.project(command.projectId);
+      if (command.type === 'project.rename') project.name = command.name; else project.collapsed = command.collapsed;
+      await this.store.save(); this.publish({ type: 'changed' }); return {};
+    }
     if (command.type === 'session.create') {
-      const now = new Date().toISOString(), session: SessionInfo = { id: randomUUID(), title: command.title, createdAt: now, updatedAt: now };
+      if (command.projectId) { const project = this.project(command.projectId); await this.workspace({projectId: project.id} as SessionInfo); project.collapsed = false; }
+      const now = new Date().toISOString(), session: SessionInfo = { ...(command.projectId ? { projectId: command.projectId } : {}), id: randomUUID(), title: command.title, createdAt: now, updatedAt: now };
       this.store.state.sessions.unshift(session); this.store.state.selectedId = session.id;
       await this.store.save(); this.publish({ type: 'changed' }); return { sessionId: session.id };
     }
@@ -114,8 +128,9 @@ export class Runtime {
     if (command.type === 'session.select') this.store.state.selectedId = session.id;
     else if (command.type === 'session.rename') session.title = command.title;
     else if (command.type === 'workspace.grant') {
+      if (session.projectId) throw new Error('项目会话继承项目目录，不能单独更改授权');
       this.idle(session.id); const workspace = await WorkspaceFiles.grant(command.path, this.store.directory); this.idle(session.id); session.workspace = workspace.root;
-    } else if (command.type === 'workspace.revoke') { this.idle(session.id); delete session.workspace; }
+    } else if (command.type === 'workspace.revoke') { if (session.projectId) throw new Error('项目会话继承项目目录，不能单独撤销授权'); this.idle(session.id); delete session.workspace; }
     else if (command.type === 'files.list') return { entries: await (await this.workspace(session)).list(command.path) };
     else if (command.type === 'files.read') return { file: await (await this.workspace(session)).read(command.path) };
     else if (command.type === 'run.cancel' || command.type === 'run.approve') {
@@ -142,14 +157,13 @@ export class Runtime {
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
-        const tools = new Registry<Tool>(); if (session.workspace) for (const tool of (await this.workspace(session)).tools()) tools.register(tool.name, tool);
+        const tools = new Registry<Tool>(); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools()) tools.register(tool.name, tool);
         for (const tool of this.browsers.get(session.id)?.tools() ?? []) tools.register(tool.name, tool);
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
         const runKey = this.key, redactRun = (text: string) => runKey ? text.split(runKey).join('[REDACTED]') : text;
         const agent = new Agent(provider, tools, this.log(session.id), event => {
           if (event.type === 'started') session.activeRunId = event.runId;
-          if (['completed', 'failed', 'cancelled'].includes(event.type)) delete session.activeRunId;
           this.events.push(event); session.updatedAt = event.at; this.publish({ type: 'event', event });
         }, session.id, redactRun, runKey.length, command.type === 'files.write' ? undefined : messages => conversation.save(messages, redactRun));
         this.agents.set(session.id, agent);

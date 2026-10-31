@@ -5,13 +5,16 @@ import { randomUUID } from 'node:crypto';
 import type { FileEntry, FilePreview, Tool } from '@wisp/core';
 const maxBytes = 2 * 1024 * 1024;
 export class WorkspaceFiles {
-  constructor(readonly root: string, private privateDirectory: string) {}
-  static async grant(path: string, privateDirectory: string) {
+  constructor(readonly root: string, private privateDirectory: string, private identity?: {dev: string; ino: string}) {}
+  static async grant(path: string, privateDirectory: string, identity?: {dev: string; ino: string}) {
     if (!isAbsolute(path)) throw new Error('工作目录必须是绝对路径');
     const root = await realpath(path);
     if (!(await lstat(root)).isDirectory()) throw new Error('请选择文件夹');
     if (root === sep) throw new Error('不能授权整个文件系统');
-    return new WorkspaceFiles(root, await realpath(privateDirectory));
+    if (identity && root !== path) throw new Error('项目目录已改变，请恢复原目录');
+    const files = new WorkspaceFiles(root, await realpath(privateDirectory), identity);
+    if (identity) await files.resolve('');
+    return files;
   }
   async resolve(path: string, allowNew = false) {
     if (isAbsolute(path) || path.includes('\\') || path.includes('\0') || path.split('/').some(p => p === '..' || p.startsWith('.'))) throw new Error('不允许路径逃逸、隐藏文件或符号链接');
@@ -20,6 +23,8 @@ export class WorkspaceFiles {
     if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('路径超出授权目录');
     const privateRel = relative(this.privateDirectory, target);
     if (!privateRel.startsWith('..') && !isAbsolute(privateRel)) throw new Error('不能访问 Wisp 私有数据目录');
+    const rootStat = await lstat(this.root, { bigint: true });
+    if (this.identity && (!rootStat.isDirectory() || rootStat.dev.toString() !== this.identity.dev || rootStat.ino.toString() !== this.identity.ino)) throw new Error('项目目录已移动或被替换，请恢复原目录或新建项目');
     if (await realpath(this.root) !== this.root) throw new Error('授权目录已改变，请重新授权');
     let cursor = this.root;
     const parts = rel ? rel.split(sep) : [];

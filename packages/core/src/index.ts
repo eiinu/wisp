@@ -30,7 +30,10 @@ export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshot') }),
   z.object({ type: z.literal('browser.connect'), sessionId: sid, confirmed: z.literal(true) }),
   z.object({ type: z.literal('browser.disconnect'), sessionId: sid }),
-  z.object({ type: z.literal('session.create'), title: z.string().trim().min(1).max(100).default('新会话') }),
+  z.object({ type: z.literal('session.create'), title: z.string().trim().min(1).max(100).default('新会话'), projectId: sid.optional() }).strict(),
+  z.object({ type: z.literal('project.create'), name: z.string().trim().min(1).max(100).optional(), path: z.string().min(1).max(4096), confirmed: z.literal(true) }).strict(),
+  z.object({ type: z.literal('project.rename'), projectId: sid, name: z.string().trim().min(1).max(100) }).strict(),
+  z.object({ type: z.literal('project.collapse'), projectId: sid, collapsed: z.boolean() }).strict(),
   z.object({ type: z.literal('session.rename'), sessionId: sid, title: z.string().trim().min(1).max(100) }),
   z.object({ type: z.literal('session.select'), sessionId: sid }),
   z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().min(1).max(16000), maxSteps: z.number().int().min(1).max(20).default(8) }),
@@ -47,12 +50,13 @@ export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('model.list') }),
 ]);
 export type Request = z.infer<typeof requestSchema>;
-export interface SessionInfo { id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
+export interface ProjectInfo { id: string; name: string; workspace: string; collapsed: boolean; createdAt: string }
+export interface SessionInfo { projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
 export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' | 'failed'; toolCount: number; message?: string }
-export interface Snapshot { sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
+export interface Snapshot { projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
-export interface Result { models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
+export interface Result { projectId?: string; models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
 export type Notice = { type: 'event'; event: RunEvent } | { type: 'changed' } | { type: 'disconnected'; message: string };
 export interface WorkbenchBridge { request(request: Request): Promise<Result>; subscribe(listener: (notice: Notice) => void): () => void }
 
@@ -72,3 +76,6 @@ export interface ModelProvider {
  listModels(options: { signal: AbortSignal }): Promise<ModelInfo[]>;
  stream(request: ModelRequest, options: { signal: AbortSignal }): AsyncIterable<ModelEvent>;
 }
+
+export const projectsSchema = z.array(z.object({ id: z.string().uuid(), name: z.string().min(1).max(100), workspace: z.string().min(1), collapsed: z.boolean(), createdAt: z.string(), identity: z.object({ dev: z.string(), ino: z.string() }) }));
+export type StoredProject = z.infer<typeof projectsSchema>[number];
