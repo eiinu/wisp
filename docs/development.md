@@ -1,8 +1,10 @@
 # 开发与运行
 
-技术栈：TypeScript / ESM、Electron、React + Vite、独立 Node Host、pi-ai、MCP、JSONL、pnpm 与 Vitest。模块通过显式依赖协作，Web 与桌面共用工作台 UI。
+技术栈：TypeScript / ESM、Electron、React + Vite、独立 Node Host、pi-ai、MCP、JSONL、pnpm 与 Vitest。模块通过显式依赖协作，桌面端与 Web 验证入口共用工作台 UI。
 
-## 运行
+Electron 桌面端是唯一生产目标。纯 Web 仅用于 UI 展示和截图验证，新功能无需增加 Web 真实能力、兼容适配或生产级降级。可使用明确标注的最小 mock/fixture；现有 Web/Host 命令保留为开发验证工具，不构成 Web 产品支持承诺。
+
+## 桌面运行与开发验证入口
 
 需要 Node.js >= 22.19、pnpm 11.25.0。
 
@@ -11,7 +13,7 @@ pnpm install --frozen-lockfile
 pnpm web
 ```
 
-`pnpm web` 构建 UI 与 Host，然后启动 **127.0.0.1:5180** 的完整工作台。打开终端给出的本机连接链接；片段中的随机令牌只存页面内存并立即从地址栏移除。服务仅限本机，不适用于跨设备分享。`WISP_PORT` 可指定端口，`WISP_DATA_DIR` 可指定数据目录（默认项目下 `.wisp`）。同一数据目录只运行一个 Host 实例。
+现有开发命令 `pnpm web` 构建 UI 与 Host，然后在 **127.0.0.1:5180** 启动本地调试入口（非生产 Web 版本）。打开终端给出的本机连接链接；片段中的随机令牌只存页面内存并立即从地址栏移除。服务仅限本机，不适用于跨设备分享。`WISP_PORT` 可指定端口，`WISP_DATA_DIR` 可指定数据目录（默认项目下 `.wisp`）。同一数据目录只运行一个 Host 实例。
 
 - **Electron**：`pnpm start`。Electron 二进制未安装时，执行官方安装器 `pnpm exec install-electron`。需要可用图形环境，不能关闭沙箱来启动。
 - **UI 开发**：`pnpm web:dev` 在 127.0.0.1:5173 启动 Vite。独立 UI 不连接 Host，会明确显示未连接；不会生成假的工具执行。
@@ -21,7 +23,7 @@ pnpm web
 
 ## 使用与离线验证
 
-在侧栏创建普通会话，或新建项目并授权目录；项目会话继承项目目录。独立会话须先在文件区域授权工作目录，Electron 使用系统目录选择器，Web 输入本机路径并确认。文件读取、编辑和审批的边界见 [项目](projects.md) 与 [工具调用](chat-tools.md)。
+在侧栏创建普通会话，或新建项目并授权目录；项目会话继承项目目录。独立会话须先在文件区域授权工作目录，Electron 使用系统目录选择器，保留的 Web/Host 调试入口通过输入本机路径并确认授权，不要求后续功能适配该入口。文件读取、编辑和审批的边界见 [项目](projects.md) 与 [工具调用](chat-tools.md)。
 
 主对话支持 Enter 发送、Shift+Enter 换行、Ctrl/Cmd+N 新会话。离线验证使用同一 Host/Agent/文件工具链，可输入：
 
@@ -44,7 +46,7 @@ pnpm web
 - `pi.ts`：官方 `@earendil-works/pi-ai@1.4.0`，`Models.streamSimple` 流式路径与显式配置。保留 OpenAI 兼容文本/工具路径；DeepSeek 使用同一模型入口下的专用 Chat Completions 适配，见 [模型模块说明](models.md)。不提供所有供应商的专有参数。
 - `http.ts`：loopback、精确 Host 与 Origin、随机 Bearer 令牌、受限 JSON POST 和带认证的事件流；无通配 CORS，不提供远程工具服务。请求凭据不写日志。
 - `apps/desktop/src`：独立 Host 子进程，受限 IPC，来源和主 frame 检查，Renderer 无 Node 权限，沙箱开启。外部链接仅接受显式用户请求的 HTTP(S) URL。
-- `apps/desktop/ui`：Web/Electron 共用工作台，不在浏览器里模拟 Host。
+- `apps/desktop/ui`：桌面与 Web 验证入口共用工作台；正常入口不伪装 Host，`qa.html` 可使用明确标注的内存样例。
 - `mcp.ts` / `browser.ts`：官方 Playwright MCP stdio 接入，每会话独立隔离浏览器；显式连接后注册受限工具，全部经过 Host 审批。工具名使用模型兼容的字母/数字/下划线格式。
 
 对话与文件 Markdown 统一使用 react-markdown + remark-gfm，支持段落、标题、列表、代码块、表格、任务列表与安全链接；不执行原始 HTML、不自动加载外部图片。扩展与文本预览边界见 [Markdown 文档](markdown.md)。图片预览仅支持 PNG/JPEG/GIF/WebP。Web iframe 可能被目标站点的嵌入策略拒绝；详见 [浏览工作区](browser-workspace.md)。

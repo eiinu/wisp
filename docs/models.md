@@ -26,7 +26,7 @@ thinking 模式拒绝 required/具名 tool_choice；不发送 parallel_tool_call
 
 每条助手工具调用在执行前保存，工具结果随后保存；重启遇到未决调用会补“结果未知、禁止重做”结果，不重放工具或批准。发生副作用后崩溃无法承诺 exactly-once；需用户检查实际结果。失败重试按钮拒绝已有非只读工具请求的任务；仅 files_read/files_list 可安全重试。API transport 重试仅重新生成下一条模型消息，不重复执行上一轮工具。
 
-Web API Key 仅留 Host 内存。桌面版可选择通过 Electron 系统 safeStorage 加密保存官方 DeepSeek Key，Host 重启后经私有 IPC 读取；配置/事件/私有会话都不保存它。已知当前密钥在持久化字符串中脱敏。删除清除密文和内存；更换提供商/地址不携带已存官方 Key，切回官方地址可恢复。系统安全存储失败不明文降级。不自动读取环境或其他凭据。
+保留的 Web/Host 调试入口仅将 API Key 留在 Host 内存，不作为生产 Web 版本；新模型能力无需为纯 Web 适配。桌面版可选择通过 Electron 系统 safeStorage 加密保存官方 DeepSeek Key，Host 重启后经私有 IPC 读取；配置/事件/私有会话都不保存它。已知当前密钥在持久化字符串中脱敏。删除清除密文和内存；更换提供商/地址不携带已存官方 Key，切回官方地址可恢复。系统安全存储失败不明文降级。不自动读取环境或其他凭据。
 
 ## 验证范围与来源
 
