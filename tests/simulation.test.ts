@@ -48,6 +48,22 @@ it('validates the shared Web HTTP boundary with simulator, approvals, cancellati
     await expect(readFile(join(workspace, 'invalid.txt'))).rejects.toThrow();
     const loop = await run('loop'); await finish(loop, 'failed');
     expect((await snapshot()).events.filter(e => e.runId === loop && e.type === 'tool_result')).toHaveLength(4);
+    let opened = 0;
+    const unsubscribe = runtime.subscribe(notice => { if(notice.type==='preview.open') void (async()=>{
+      const claimed=await api({type:'preview.claim',sessionId:notice.sessionId,ticket:notice.ticket});
+      expect(claimed.preview?.url).toBe('https://example.com/');opened++;
+      await api({type:'preview.complete',sessionId:notice.sessionId,ticket:notice.ticket,accepted:true});
+    })(); });
+    const web = await run('openweb'); await wait(s=>s.events.some(e=>e.runId===web&&e.type==='approval_requested'));
+    expect(opened).toBe(0);
+    const approval=(await snapshot()).events.find(e=>e.runId===web&&e.type==='approval_requested')!;
+    await api({type:'run.approve',sessionId:first,runId:web,callId:String(approval.data.id),allowed:true});await finish(web);
+    expect(opened).toBe(1);expect((await snapshot()).events.find(e=>e.runId===web&&e.type==='tool_result')?.data.text).toContain('open_request_accepted');
+    await api({type:'session.select',sessionId:second});await api({type:'run.start',sessionId:second,prompt:'[demo:openweb]',maxSteps:4});
+    await wait(s=>s.events.some(e=>e.sessionId===second&&e.type==='approval_requested'));
+    const denied=(await snapshot()).events.findLast(e=>e.sessionId===second&&e.type==='approval_requested')!;
+    await api({type:'run.approve',sessionId:second,runId:denied.runId,callId:String(denied.data.id),allowed:false});await finish(denied.runId);
+    expect(opened).toBe(1);unsubscribe();
     expect(JSON.stringify(await snapshot())).not.toContain('开发模拟推理');
   } finally { await host.close(); await runtime.shutdown(); await simulator.close(); await rm(root, { recursive: true, force: true }); }
 });

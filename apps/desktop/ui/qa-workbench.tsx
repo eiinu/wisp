@@ -3,9 +3,11 @@ import React, { useState } from 'react';
 import type { Notice, Request, Result, RunEvent, Snapshot, WorkbenchBridge } from '@wisp/core';
 import { App } from './app.js';
 
-export function fixture(approvalDelay = 1800): WorkbenchBridge {
+export function fixture(approvalDelay = 1800, web = false): WorkbenchBridge {
   const files = new Map([['notes.txt', '补充笔记：仅 QA 内存数据'], ['README.md', '# 内存文件预览样例\n\n仅供 QA；没有读取磁盘或授予真实文件权限。']]);
-  let approvalPending = false;
+  let approvalPending = false, previewClaimed=false;
+  let previewResolve: ((accepted:boolean)=>void)|undefined;
+  const ticket='qa-preview-ticket';
   const listeners = new Set<(notice: Notice) => void>();
   const event = (id: string, runId: string, type: RunEvent['type'], data: Record<string, unknown>): RunEvent => ({ version: 1, id, sessionId: 'conversation-fixture', runId, type, at: '2026-10-31T00:00:00Z', data });
   const state: Snapshot = {
@@ -29,6 +31,7 @@ export function fixture(approvalDelay = 1800): WorkbenchBridge {
       event('approval-2','approval-fixture','approval_requested',{id:'call-fixture',name:'files_write',description:'测试审批：不会执行真实文件操作。',args:{path:'summary.md',content:'# 测试摘要'}}),
     ],
   };
+  if(web) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) { e.data.name='open_webpage';e.data.args={url:'https://example.com/'}; e.data.description='打开网页展示样例：批准后在右侧请求加载 example.com；不读取页面，可能受到嵌入限制。'; }
   // The final answer follows the tool rounds in the actual event sequence.
   const answerIndex=state.events.findIndex(e=>e.id==='answer-1');
   const [answer]=state.events.splice(answerIndex,1); state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,answer);
@@ -38,6 +41,8 @@ export function fixture(approvalDelay = 1800): WorkbenchBridge {
     async request(input:Request):Promise<Result>{
       if(input.type==='snapshot')return{snapshot:structuredClone(state)};
       if(input.type==='session.select'){state.selectedId=input.sessionId;changed();return{};}
+      if(input.type==='preview.claim'){if(!previewResolve||previewClaimed||input.ticket!==ticket||input.sessionId!==state.selectedId)throw new Error('样例请求已失效');previewClaimed=true;return{preview:{ticket,url:'https://example.com/'}};}
+      if(input.type==='preview.complete'){if(!previewResolve||!previewClaimed||input.ticket!==ticket)throw new Error('样例请求已失效');const done=previewResolve;previewResolve=undefined;done(input.accepted);return{};}
       if(input.type==='files.read' || input.type==='files.list') {
         if(input.sessionId !== 'conversation-fixture') throw new Error('QA 会话没有内存目录权限');
         if(input.type==='files.list') {
@@ -56,9 +61,12 @@ export function fixture(approvalDelay = 1800): WorkbenchBridge {
         approvalPending=true;
         await new Promise(resolve=>setTimeout(resolve,approvalDelay));
         if(!state.sessions[0].activeRunId) return{};
-        if(input.allowed) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
+        let received=false;
+        if(web&&input.allowed) received=await new Promise<boolean>(resolve=>{const timer=setTimeout(()=>{previewResolve=undefined;resolve(false);},5000);previewResolve=accepted=>{clearTimeout(timer);resolve(accepted);};listeners.forEach(listener=>listener({type:'preview.open',ticket,sessionId:'conversation-fixture'}));});
+        if(!state.sessions[0].activeRunId)return{};
+        if(input.allowed&&!web) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
         state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_resolved',{callId:'call-fixture',allowed:input.allowed}));
-        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,text:input.allowed?'内存样例已更新；没有写入磁盘':'已拒绝；内存与磁盘均未写入'}));
+        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):'内存样例已更新；没有写入磁盘'}));
         state.events.push(event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
@@ -67,4 +75,4 @@ export function fixture(approvalDelay = 1800): WorkbenchBridge {
     },
   };
 }
-export function QAWorkbench(){const[bridge]=useState(fixture);return <App initialClient={bridge}/>;}
+export function QAWorkbench({web=false}:{web?:boolean}){const[bridge]=useState(()=>fixture(1800,web));return <App initialClient={bridge}/>;}

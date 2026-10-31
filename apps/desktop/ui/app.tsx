@@ -2,6 +2,7 @@ import React, { useCallback, useReducer, useEffect, useLayoutEffect, useRef, use
 import type { WorkbenchBridge, Request, Snapshot, RunEvent, Result } from '@wisp/core';
 import { webBridge } from './bridge.js';
 import { copyText } from './clipboard.js';
+import { previewDelivery } from './preview-delivery.js';
 import { groupExecution } from './tool-groups.js';
 import { ToolActivity } from './tool-activity.js';
 import { Markdown } from './markdown.js';
@@ -79,7 +80,9 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
         setConnected(true); setError('');
       } catch (e) { if (live && revision === generation) { setError(String(e)); setConnected(false); } }
     }
+    const deliverPreview = previewDelivery(() => live ? selectedRef.current : undefined, input=>bridge!.request(input), url=>openPreview({kind:'web',url}));
     const unsubscribe = bridge.subscribe(notice => {
+      if (notice.type === 'preview.open') void deliverPreview(notice);
       if (!live) return;
       if (notice.type === 'disconnected') { generation++; setConnected(false); setError(notice.message); }
       if (notice.type === 'changed') void refresh();

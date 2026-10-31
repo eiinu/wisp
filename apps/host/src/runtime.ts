@@ -1,4 +1,5 @@
 import { officialDeepSeek, type CredentialVault } from './credentials.js';
+import { PreviewRequests } from './preview.js';
 import { ConversationStore } from './conversation.js';
 import { asModelProvider } from './model.js';
 import { randomUUID } from 'node:crypto';
@@ -15,6 +16,7 @@ import { BrowserSession, type BrowserTransportFactory } from './browser.js';
 export class Runtime {
   readonly store: StateStore;
   private events: RunEvent[] = [];
+  private previews = new PreviewRequests(notice => this.publish(notice), () => this.store.state.selectedId);
   private agents = new Map<string, Agent>();
   private busy = new Set<string>();
   private listeners = new Set<(notice: Notice) => void>();
@@ -137,6 +139,8 @@ export class Runtime {
       await this.browsers.get(session.id)?.disconnect();
       return { snapshot: this.snapshot() };
     }
+    if (command.type === 'preview.claim') return {preview:this.previews.claim(session.id,command.ticket)};
+    if (command.type === 'preview.complete') { this.previews.complete(session.id,command.ticket,command.accepted);return {}; }
     if (command.type === 'session.select') this.store.state.selectedId = session.id;
     else if (command.type === 'session.rename') session.title = command.title;
     else if (command.type === 'workspace.grant') {
@@ -169,7 +173,7 @@ export class Runtime {
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
-        const tools = new Registry<Tool>(); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools()) tools.register(tool.name, tool);
+        const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools()) tools.register(tool.name, tool);
         for (const tool of this.browsers.get(session.id)?.tools() ?? []) tools.register(tool.name, tool);
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));

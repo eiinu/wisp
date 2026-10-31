@@ -28,6 +28,8 @@ export type ModelConfig = z.infer<typeof modelConfigSchema>;
 const sid = z.string().uuid();
 export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshot') }),
+  z.object({ type: z.literal('preview.claim'), sessionId: sid, ticket: sid }).strict(),
+  z.object({ type: z.literal('preview.complete'), sessionId: sid, ticket: sid, accepted: z.boolean() }).strict(),
   z.object({ type: z.literal('browser.connect'), sessionId: sid, confirmed: z.literal(true) }),
   z.object({ type: z.literal('browser.disconnect'), sessionId: sid }),
   z.object({ type: z.literal('session.create'), title: z.string().trim().min(1).max(100).default('新会话'), projectId: sid.optional() }).strict(),
@@ -58,8 +60,9 @@ export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' 
 export interface Snapshot { projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
-export interface Result { projectId?: string; models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
-export type Notice = { type: 'event'; event: RunEvent } | { type: 'changed' } | { type: 'disconnected'; message: string };
+export interface Result { preview?: { ticket: string; url: string }; projectId?: string; models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
+export type PreviewNotice = { type: 'preview.open'; sessionId: string; ticket: string };
+export type Notice = PreviewNotice | { type: 'event'; event: RunEvent } | { type: 'changed' } | { type: 'disconnected'; message: string };
 export interface WorkbenchBridge { request(request: Request): Promise<Result>; subscribe(listener: (notice: Notice) => void): () => void }
 
 // Provider-neutral contract. Private continuation never belongs in RunEvent or Renderer state.
