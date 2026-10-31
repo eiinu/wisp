@@ -6,7 +6,7 @@ import { Markdown, markdownUrl } from './markdown.js';
 it('renders CommonMark and GFM structure instead of a handwritten line parser', () => {
   const html = renderToStaticMarkup(<Markdown text={'# 标题\n\n1. **重点**\n2. *强调*\n\n> 引用\n\n| A | B |\n| - | - |\n| 一 | 二 |\n\n- [x] 完成\n\n~~删除~~\n\n```ts\nconst x = 1\n```\n\n[链接](https://example.com)'}/>);
   for (const tag of ['h1', 'ol', 'strong', 'em', 'blockquote', 'table', 'del', 'pre']) expect(html).toContain(`<${tag}`);
-  expect(html).toContain('type="checkbox"'); expect(html).toContain('language-ts'); expect(html).toContain('rel="noreferrer noopener"');
+  expect(html).toContain('type="checkbox"'); expect(html).toContain('language-ts'); expect(html).not.toContain('href="https://');
 });
 it('renders every prefix of a streaming Markdown response without throwing', () => {
   const message = '# 标题\n\n**粗体** [链接](https://example.com)\n\n```ts\nconst value = "中";\n```\n\n| A | B |\n| - | - |\n| 1 | 2 |';
