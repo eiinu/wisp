@@ -73,3 +73,21 @@ it('keeps scroll position while reading older messages and offers a return-to-la
   expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   await click('回到最新消息'); expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledOnce();
 });
+
+it('keeps the workspace toggle named and reports expanded state when its visible text is collapsed', async () => {
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 1000, left: 0 } as DOMRect);
+  try {
+    const c = client(); await act(() => root.render(<App initialClient={c.bridge}/>));
+    const toggle = container.querySelector<HTMLButtonElement>('[aria-label="切换工作区"]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.querySelector('[aria-hidden="true"]')?.textContent).toBe('▱');
+    const label = toggle.querySelector('span:not([aria-hidden])') as HTMLElement;
+    label.hidden = true; // Mirrors the narrow-column CSS; the explicit name survives.
+    toggle.focus(); await act(() => toggle.click());
+    expect(toggle.getAttribute('aria-label')).toBe('切换工作区');
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.title).toBe('收起工作区'); expect(document.activeElement).toBe(toggle);
+    await act(() => toggle.click());
+    expect(toggle.getAttribute('aria-expanded')).toBe('false'); expect(toggle.title).toBe('展开工作区');
+  } finally { bounds.mockRestore(); }
+});
