@@ -41,7 +41,7 @@ export function FilePanel({ sessionId, workspace, connected, active, request, ch
     } catch (e) { if (current(id)) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (current(id)) setLoading(undefined); }
   }
-  useEffect(() => { if (connected) void list(''); else { sequence.current++; setLoading(undefined); } }, [connected]);
+  useEffect(() => { if (connected) void list(''); else { sequence.current++; setLoading(undefined); setSaving(false); } }, [connected]);
   async function save() {
     if (!file || !sessionId || saving || active || !connected) return;
     const id = ++sequence.current; setSaving(true); setError('');

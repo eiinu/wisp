@@ -20,3 +20,12 @@
 .file-preview .plain-text{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,monospace}
 .file-list>button[aria-pressed=true]{background:#e9e9e9}.breadcrumb{display:flex;flex-wrap:wrap;align-items:center;gap:4px;overflow-wrap:anywhere}
 .inspector>.error{margin:10px 14px}.file-toolbar{flex-wrap:wrap}.file-preview .file-status{padding:0;margin:12px 0}
+/* Keep long content inside its column and keyboard focus visible. */
+.assistant-body,.conversation,.messages,.composer-area,.workspace-body{min-width:0}
+.user-message,.approval,.run-notice,.error{overflow-wrap:anywhere}
+.tool-trace pre,.approval pre{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px}
+.modal input[type=checkbox]{display:inline-block;width:auto;margin:0 8px 0 0;vertical-align:middle}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid #6a7f90;outline-offset:3px}
+.composer-area{position:relative}.latest-message{display:block;margin:0 auto 8px;border:1px solid #ddd;border-radius:18px;background:#fff;font-size:12px;box-shadow:0 2px 8px #0001}
+.connection-banner{flex-wrap:wrap}.connection-banner>span{min-width:0;overflow-wrap:anywhere}.error>button{flex-shrink:0}
+@media(max-width:760px){.sidebar-visible .workspace{pointer-events:none}.sidebar{max-width:85vw}}

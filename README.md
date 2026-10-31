@@ -58,7 +58,7 @@ pnpm web
 - `apps/desktop/ui`：Web/Electron 共用工作台，不在浏览器里模拟 Host。
 - `mcp.ts` / `browser.ts`：官方 Playwright MCP stdio 接入，每会话独立隔离浏览器；显式连接后注册受限工具，全部经过 Host 审批。工具名使用模型兼容的字母/数字/下划线格式。
 
-Markdown 是安全的文本、标题、列表和代码块子集，不执行 HTML。图片预览仅支持 PNG/JPEG/GIF/WebP。网页可能被目标站点的嵌入策略拒绝；静态预览不能绕过该策略。
+对话与文件 Markdown 统一使用 react-markdown + remark-gfm，支持段落、标题、列表、代码块、表格、任务列表与安全链接；不执行原始 HTML、不自动加载外部图片。扩展与文本预览边界见 [Markdown 文档](docs/markdown.md)。图片预览仅支持 PNG/JPEG/GIF/WebP。网页可能被目标站点的嵌入策略拒绝；静态预览不能绕过该策略。
 
 ## 验证
 
