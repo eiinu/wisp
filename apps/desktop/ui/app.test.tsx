@@ -244,3 +244,19 @@ it('keeps preview tabs session-local and lists only the selected conversation in
  await click('会话 two');const second=await listed('two');expect(second.tabs).toHaveLength(0);
  await click('会话 one');const restored=await listed('one-again');expect(restored.tabs.map(t=>t.id)).toEqual(first.tabs.map(t=>t.id));
 });
+it('consumes MCP confirmation Escape before leaving settings and restores its trigger', async () => {
+ const state=snapshot();state.mcpServers=[{id:'fixture-id',name:'QA 服务',command:'node',args:[],state:'disabled',tools:[],envNames:[],envStorage:'session'}];
+ const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));
+ await click('设置');await click('本地 MCP');
+ for(const label of ['激活 QA 服务','删除 QA 服务']){
+  const trigger=button(label);trigger.focus();await click(label);
+  expect(container.querySelector('.mcp-confirm')).not.toBeNull();
+  await act(()=>document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
+  expect(container.querySelector('.mcp-confirm')).toBeNull();
+  expect(container.querySelector('.settings-page')).not.toBeNull();
+  expect(document.activeElement).toBe(trigger);
+ }
+ expect(c.request.mock.calls.some(([r])=>r.type==='mcp.activate'||r.type==='mcp.delete')).toBe(false);
+ await act(()=>document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
+ expect(container.querySelector('.settings-page')).toBeNull();
+});

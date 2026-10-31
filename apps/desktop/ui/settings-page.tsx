@@ -54,9 +54,10 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
   useEffect(() => { page.current?.focus(); }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (!lock.current) { if (confirmLeave) setConfirmLeave(false); else back(); } }
+      if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); e.stopImmediatePropagation(); if (!lock.current) { if (confirmLeave) setConfirmLeave(false); else back(); } }
     };
-    document.addEventListener('keydown', key, true); return () => document.removeEventListener('keydown', key, true);
+    // Bubble after nested controls have had a chance to consume Escape.
+    document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key);
   }, [dirty, confirmLeave, onBack]);
   useEffect(() => {
     if (!confirmLeave) return;
