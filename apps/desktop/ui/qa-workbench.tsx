@@ -10,7 +10,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   let previewResolve: ((accepted:boolean)=>void)|undefined;
   const ticket='qa-preview-ticket';
   const listeners = new Set<(notice: Notice) => void>();
-  const event = (id: string, runId: string, type: RunEvent['type'], data: Record<string, unknown>): RunEvent => ({ version: 1, id, sessionId: 'conversation-fixture', runId, type, at: '2026-10-31T00:00:00Z', data });
+  const event = (id: string, runId: string, type: RunEvent['type'], data: Record<string, unknown>, sessionId='conversation-fixture'): RunEvent => ({ version: 1, id, sessionId, runId, type, at: '2026-10-31T00:00:00Z', data });
   const state: Snapshot = {
     sessions: [{id:'conversation-fixture',workspace:'/QA-memory-only',title:'整理研究资料（交互样例）',createdAt:'',updatedAt:'',activeRunId:'approval-fixture'},{id:'empty-fixture',title:'空白对话（样例）',createdAt:'',updatedAt:''}], selectedId:'conversation-fixture',
     keyPresent:false,browserConnected:false,config:{provider:'offline',model:'offline-test',baseUrl:''},
@@ -48,22 +48,27 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   const [answer]=state.events.splice(answerIndex,1); state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,answer);
   const changed=()=>listeners.forEach(listener=>listener({type:'changed'}));
   if(basic==='read_webpage'){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
-  let query:{ticket:string;claimed:boolean;resolve(tabs:PreviewTabMetadata[]):void}|undefined;
-  const identifiers=new Map<string,string>();let listed:({tabId:string}&PreviewTabMetadata)[]=[];
-  const queryTabs=()=>new Promise<PreviewTabMetadata[]>((resolve,reject)=>{
+  let query:{ticket:string;sessionId:string;claimed:boolean;resolve(tabs:PreviewTabMetadata[]):void}|undefined;
+  const identifiers=new Map<string,string>();let listedSession:string|undefined;let listed:({tabId:string}&PreviewTabMetadata)[]=[];
+  const queryTabs=(sessionId=state.selectedId!)=>new Promise<PreviewTabMetadata[]>((resolve,reject)=>{
+    if(sessionId!==state.selectedId){reject(new Error('会话已切换，请重新获取列表'));return;}
     if(query){reject(new Error('样例列表请求尚未完成'));return;}
     const id=crypto.randomUUID(),timer=setTimeout(()=>{query=undefined;reject(new Error('样例界面未响应'));},3000);
-    query={ticket:id,claimed:false,resolve:tabs=>{clearTimeout(timer);query=undefined;resolve(tabs);}};
-    listeners.forEach(listener=>listener({type:'preview.tabs',sessionId:state.selectedId!,ticket:id}));
+    query={ticket:id,sessionId,claimed:false,resolve:tabs=>{clearTimeout(timer);query=undefined;resolve(tabs);}};
+    listeners.forEach(listener=>listener({type:'preview.tabs',sessionId,ticket:id}));
   });
 
   return {
     async inspectTabs(){
-      const rows=await queryTabs();listed=rows.map(tab=>{const id=identifiers.get(tab.id)??crypto.randomUUID();identifiers.set(tab.id,id);return {...tab,tabId:id};});
-      const run=crypto.randomUUID();state.events.push(event(crypto.randomUUID(),run,'started',{prompt:'QA：列出此会话实际打开的预览标签（仅内存）'}),event(crypto.randomUUID(),run,'tool_requested',{id:'qa-list',name:'list_preview_tabs',args:{}}),event(crypto.randomUUID(),run,'tool_result',{callId:'qa-list',text:JSON.stringify({tabs:listed.map(({id,revision,url,...tab})=>{const safe=url&&safeWebUrl(url);if(safe){const value=new URL(safe);value.search='';value.hash='';return {...tab,url:value.href};}return tab;}),message:'仅 QA 内存标签元数据；没有读取真实网页'})}),event(crypto.randomUUID(),run,'completed',{}));changed();
+      const sessionId=state.selectedId!;const rows=await queryTabs(sessionId);
+      if(state.selectedId!==sessionId)throw new Error('会话已切换，请重新获取列表');
+      const listEvent=(id:string,runId:string,type:RunEvent['type'],data:Record<string,unknown>)=>event(id,runId,type,data,sessionId);
+      listedSession=sessionId;listed=rows.map(tab=>{const key=JSON.stringify([sessionId,tab.id]);const id=identifiers.get(key)??crypto.randomUUID();identifiers.set(key,id);return {...tab,tabId:id};});
+      const run=crypto.randomUUID();state.events.push(listEvent(crypto.randomUUID(),run,'started',{prompt:'QA：列出此会话实际打开的预览标签（仅内存）'}),listEvent(crypto.randomUUID(),run,'tool_requested',{id:'qa-list',name:'list_preview_tabs',args:{}}),listEvent(crypto.randomUUID(),run,'tool_result',{callId:'qa-list',text:JSON.stringify({tabs:listed.map(({id,revision,url,...tab})=>{const safe=url&&safeWebUrl(url);if(safe){const value=new URL(safe);value.search='';value.hash='';return {...tab,url:value.href};}return tab;}),message:'仅 QA 内存标签元数据；没有读取真实网页'})}),listEvent(crypto.randomUUID(),run,'completed',{}));changed();
       return listed.map(({tabId,title,kind})=>({tabId,title,kind}));
     },
     async beginRead(tabId){
+      if(listedSession!==state.selectedId)throw new Error('先获取此会话的标签列表');
       const tab=listed.find(t=>t.tabId===tabId);if(!tab||tab.kind!=='web')throw new Error('先获取列表并选择网页');
       const now=(await queryTabs()).find(t=>t.id===tab.id);if(!now||now.kind!==tab.kind||now.url!==tab.url||now.revision!==tab.revision)throw new Error('标签已关闭或变化，请重新获取列表');
       if(state.selectedId!=='conversation-fixture')throw new Error('切回样例会话后重新获取列表');
@@ -80,8 +85,8 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     async request(input:Request):Promise<Result>{
-      if(input.type==='preview.tabs.claim'){if(!query||query.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId)throw new Error('样例列表票据已失效');query.claimed=true;return{};}
-      if(input.type==='preview.tabs.complete'){if(!query?.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId)throw new Error('样例列表票据已失效');query.resolve(input.tabs);return{};}
+      if(input.type==='preview.tabs.claim'){if(!query||query.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.claimed=true;return{};}
+      if(input.type==='preview.tabs.complete'){if(!query?.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.resolve(input.tabs);return{};}
       if(input.type==='snapshot')return{snapshot:structuredClone(state)};
       if(input.type==='session.select'){state.selectedId=input.sessionId;changed();return{};}
       if(input.type==='preview.claim'){if(!previewResolve||previewClaimed||input.ticket!==ticket||input.sessionId!==state.selectedId)throw new Error('样例请求已失效');previewClaimed=true;return{preview:{ticket,url:'https://example.com/'}};}

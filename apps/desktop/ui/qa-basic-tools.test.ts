@@ -29,3 +29,21 @@ it('QA readonly execution can be cancelled without approval or a late result',as
  const events=(await bridge.request({type:'snapshot'})).snapshot!.events.filter(e=>e.runId===runId);
  expect(events.some(e=>e.type==='cancelled')).toBe(true);expect(events.some(e=>['approval_requested','tool_result','completed'].includes(e.type))).toBe(false);
 });
+
+it('QA list records belong to the requesting session, including empty lists',async()=>{
+ const bridge=fixture(1,false,'read_webpage');
+ bridge.subscribe(n=>{if(n.type==='preview.tabs')void(async()=>{await bridge.request({type:'preview.tabs.claim',sessionId:n.sessionId,ticket:n.ticket});await bridge.request({type:'preview.tabs.complete',sessionId:n.sessionId,ticket:n.ticket,tabs:[]});})();});
+ const before=(await bridge.request({type:'snapshot'})).snapshot!.events;
+ await bridge.request({type:'session.select',sessionId:'empty-fixture'});expect(await bridge.inspectTabs()).toEqual([]);
+ const added=(await bridge.request({type:'snapshot'})).snapshot!.events.slice(before.length);
+ expect(added.map(e=>e.type)).toEqual(['started','tool_requested','tool_result','completed']);expect(added.every(e=>e.sessionId==='empty-fixture')).toBe(true);
+ await bridge.request({type:'session.select',sessionId:'conversation-fixture'});await bridge.inspectTabs();
+ expect((await bridge.request({type:'snapshot'})).snapshot!.events.slice(-4).every(e=>e.sessionId==='conversation-fixture')).toBe(true);
+});
+it('QA list changing session before delivery cannot publish to either session',async()=>{
+ const bridge=fixture(1,false,'read_webpage');let finish:()=>Promise<void>=async()=>{};
+ bridge.subscribe(n=>{if(n.type==='preview.tabs')finish=async()=>{await bridge.request({type:'preview.tabs.claim',sessionId:n.sessionId,ticket:n.ticket});const completing=bridge.request({type:'preview.tabs.complete',sessionId:n.sessionId,ticket:n.ticket,tabs:[]});await bridge.request({type:'session.select',sessionId:'empty-fixture'});await completing;};});
+ const before=(await bridge.request({type:'snapshot'})).snapshot!.events.length,pending=bridge.inspectTabs();
+ const rejected=expect(pending).rejects.toThrow('会话已切换');await finish();await rejected;
+ expect((await bridge.request({type:'snapshot'})).snapshot!.events).toHaveLength(before);
+});
