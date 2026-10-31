@@ -1,0 +1,38 @@
+/* Wisp's base layer, informed by Tailwind CSS Preflight (2026-10-31):
+   https://tailwindcss.com/docs/preflight
+   https://github.com/tailwindlabs/tailwindcss/blob/main/packages/tailwindcss/preflight.css
+   Loaded below component/vendor styles; applies only to this document. */
+*, ::before, ::after, ::backdrop, ::file-selector-button { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; tab-size: 4; }
+body { margin: 0; }
+/* Reset document spacing without resetting every KaTeX internal span. */
+h1,h2,h3,h4,h5,h6,p,blockquote,figure,pre,dl,dd,ol,ul,menu,fieldset { margin: 0; }
+fieldset,legend,ol,ul,menu { padding: 0; }
+fieldset { min-inline-size: 0; border: 0; }
+h1,h2,h3,h4,h5,h6 { font-size: inherit; font-weight: inherit; }
+/* Lists keep native markers/semantics, with spacing owned by Markdown. */
+table { text-indent: 0; border-color: inherit; border-collapse: collapse; border-spacing: 0; }
+hr { height: 0; color: inherit; border: 0; border-top: 1px solid; }
+button,input,textarea,select,optgroup,::file-selector-button {
+  font: inherit; letter-spacing: inherit; color: inherit; margin: 0;
+  padding: 0; border: 0 solid; border-radius: 0; background: transparent;
+}
+button,input:where([type=button],[type=submit],[type=reset]),::file-selector-button { appearance: button; text-transform: none; }
+input:where(:not([type]),[type=text],[type=password],[type=email],[type=url],[type=search],[type=tel],[type=number]),textarea { appearance: none; }
+/* Retain native affordances and accessible system rendering. */
+select,input:where([type=checkbox],[type=radio],[type=range],[type=color],[type=file]) { appearance: auto; }
+input:where([type=checkbox],[type=radio]) { padding: 0; border: revert; background: revert; border-radius: revert; accent-color: #526878; }
+button:disabled,input:disabled,select:disabled,textarea:disabled { cursor: not-allowed; }
+textarea { resize: vertical; }
+::placeholder { opacity: 1; color: #858585; }
+::-webkit-search-decoration { -webkit-appearance: none; }
+:-moz-ui-invalid { box-shadow: none; }
+img,video,canvas,svg,iframe,embed,object { display: block; vertical-align: middle; }
+img,video { max-width: 100%; height: auto; }
+/* Math owns its inline SVG baseline and sizes. */
+.katex svg { display: revert; vertical-align: revert; }
+iframe { border: 0; }
+summary { display: list-item; cursor: pointer; }
+dialog { margin: auto; padding: 0; border: 0; color: inherit; background: #fff; }
+dialog:not([open]) { display: none; }
+[hidden]:not([hidden=until-found]) { display: none !important; }
