@@ -1,3 +1,4 @@
+import { extractPage, publicPageUrl, boundedRead } from './page-content.js';
 import { WebContentsView, session, type BrowserWindow, type DownloadItem } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { browserUrl, type BrowserCommand, type BrowserDownload, type BrowserPage, type BrowserSnapshot } from '../shared/browser.js';
@@ -7,9 +8,10 @@ export function createBrowser(window: BrowserWindow) {
   const remote = session.fromPartition(`wisp-browser-${randomUUID()}`);
   remote.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   remote.setPermissionCheckHandler(() => false);
-  const pages = new Map<string, { view: WebContentsView; state: BrowserPage; generation: number }>();
+  const pages = new Map<string, { view: WebContentsView; state: BrowserPage; generation: number; owner?: string }>();
   const downloads = new Map<string, { item?: DownloadItem; state: BrowserDownload }>();
-  let disposed = false;
+  let disposed = false, currentSession: string | undefined, activeTab: string | undefined;
+  const readTickets = new Map<string, {tabId:string;sessionId:string;generation:number;url:string;expires:number}>();
   const snapshot = (): BrowserSnapshot => ({ pages: [...pages.values()].map(p => ({ ...p.state })), downloads: [...downloads.values()].map(d => ({ ...d.state })) });
   const emit = () => { if (!disposed && !window.isDestroyed()) window.webContents.send('wisp:browser-state', snapshot()); };
   const download = (event: Electron.Event, item: DownloadItem, contents: Electron.WebContents) => {
@@ -32,13 +34,15 @@ export function createBrowser(window: BrowserWindow) {
   }
   function open(id: string, url: string) {
     let page = pages.get(id);
+    if (page && page.owner !== currentSession) throw new Error('标签属于另一个会话');
     if (!page) {
       if (pages.size >= 12) throw new Error('最多打开 12 个网页标签');
       const view = new WebContentsView({ webPreferences: { session: remote, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false, navigateOnDragDrop: false } });
-      page = { view, generation: 0, state: { id, url, title: new URL(url).hostname, loading: true, back: false, forward: false } };
+      page = { view, generation: 0, owner: currentSession, state: { id, url, title: new URL(url).hostname, loading: true, back: false, forward: false } };
       pages.set(id, page); window.contentView.addChildView(view); view.setVisible(false);
       const wc = view.webContents, state = page.state;
       const sync = () => { if (wc.isDestroyed()) return; state.url = wc.getURL() || state.url; state.title = wc.getTitle() || state.title; state.loading = wc.isLoading(); state.back = wc.navigationHistory.canGoBack(); state.forward = wc.navigationHistory.canGoForward(); emit(); };
+      wc.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) page!.generation++; });
       wc.on('did-start-loading', sync); wc.on('did-stop-loading', sync); wc.on('did-navigate', sync); wc.on('did-navigate-in-page', sync); wc.on('page-title-updated', sync);
       wc.on('will-navigate', (event, target) => { if (!browserUrl(target)) event.preventDefault(); });
       wc.on('will-redirect', (event, target) => { if (!browserUrl(target)) event.preventDefault(); });
@@ -55,9 +59,10 @@ export function createBrowser(window: BrowserWindow) {
   }
   function command(input: BrowserCommand): BrowserSnapshot {
     if (!input || typeof input !== 'object' || disposed) throw new Error('Browser unavailable');
-    if (!['snapshot', 'layout'].includes(input.type) && (!('id' in input) || typeof input.id !== 'string' || !input.id)) throw new Error('Invalid tab');
+    if (!['snapshot', 'layout', 'context'].includes(input.type) && (!('id' in input) || typeof input.id !== 'string' || !input.id)) throw new Error('Invalid tab');
     if ('id' in input && input.id !== undefined && (typeof input.id !== 'string' || input.id.length > 4096)) throw new Error('Invalid tab');
-    if (input.type === 'open') { const url = browserUrl(input.url); if (!url) throw new Error('仅允许 HTTP/HTTPS 网页'); open(input.id, url); }
+    if (input.type === 'context') { if (input.sessionId !== undefined && (typeof input.sessionId !== 'string' || input.sessionId.length > 100)) throw new Error('Invalid session'); if(currentSession !== input.sessionId) readTickets.clear(); currentSession=input.sessionId; activeTab=input.id; }
+    else if (input.type === 'open') { const url = browserUrl(input.url); if (!url) throw new Error('仅允许 HTTP/HTTPS 网页'); open(input.id, url); }
     else if (input.type === 'close') close(input.id);
     else if (input.type === 'layout') {
       for (const page of pages.values()) page.view.setVisible(false);
@@ -83,5 +88,29 @@ export function createBrowser(window: BrowserWindow) {
   function dispose() { if (disposed) return; disposed = true; remote.removeListener('will-download', download); window.removeListener('resize', hide); for (const id of pages.keys()) close(id); for (const d of downloads.values()) d.item?.cancel(); }
   // Detach children before BrowserWindow destroys its native contentView.
   window.once('close', dispose);
-  return { command, dispose };
+  async function pageOperation(operation:string,payload:Record<string,unknown>,signal:AbortSignal) {
+    signal.throwIfAborted(); if(disposed || !currentSession || payload.sessionId!==currentSession) throw new Error('网页不属于当前会话');
+    if(operation==='page.prepare') {
+      for(const [id,t] of readTickets) if(t.expires<Date.now())readTickets.delete(id);
+      if(readTickets.size>=32)throw new Error('待审批读取过多，请稍后重试');
+      const tabId=typeof payload.tabId==='string'?payload.tabId:activeTab;
+      const page=tabId&&pages.get(tabId);if(!page || page.owner!==currentSession)throw new Error('此会话没有可读取的网页标签');
+      const wc=page.view.webContents,url=wc.getURL();
+      if(wc.isDestroyed()||wc.isLoading()||page.state.error||!browserUrl(url))throw new Error('网页未加载完成或已失败，请先打开并等待加载');
+      const ticket=randomUUID();readTickets.set(ticket,{tabId:tabId!,sessionId:currentSession,generation:page.generation,url,expires:Date.now()+300000});
+      return {ticket,tabId,title:wc.getTitle().slice(0,300),url:publicPageUrl(url)};
+    }
+    if(operation!=='page.read'||typeof payload.ticket!=='string')throw new Error('不支持的网页操作');
+    const ticket=readTickets.get(payload.ticket);readTickets.delete(payload.ticket);
+    if(!ticket||ticket.sessionId!==currentSession||ticket.expires<Date.now())throw new Error('读取审批已过期或已消费');
+    const page=pages.get(ticket.tabId),wc=page?.view.webContents;
+    const unchanged=()=>page&&pages.get(ticket.tabId)===page&&!wc!.isDestroyed()&&page.owner===currentSession&&currentSession===ticket.sessionId&&page.generation===ticket.generation&&wc!.getURL()===ticket.url&&!wc!.isLoading()&&!page.state.error;
+    if(!unchanged())throw new Error('页面导航或标签状态已改变，请重新审批');
+    signal.throwIfAborted();
+    const result=await boundedRead(wc!.executeJavaScriptInIsolatedWorld(999,[{code:`(${extractPage.toString()})()`}]), AbortSignal.any([signal,AbortSignal.timeout(8000)]));
+    signal.throwIfAborted();if(!unchanged())throw new Error('读取期间页面已改变，结果已丢弃');
+    if(!result||typeof result.text!=='string'||result.text.length>24000||!Array.isArray(result.links))throw new Error('网页提取结果无效');
+    return {tabId:ticket.tabId,url:publicPageUrl(ticket.url),title:String(result.title).slice(0,300),text:result.text,links:result.links.slice(0,60),truncated:!!result.truncated};
+  }
+  return { command, dispose, pageOperation };
 }

@@ -84,7 +84,7 @@ export class Agent {
           try {
             tool = this.tools.get(call.name);
             await tool.validate?.(call.args);
-            prepared = await tool.prepare?.(call.args, signal);
+            prepared = tool.prepare ? await abortable(tool.prepare(call.args, signal), signal) : undefined;
             signal.throwIfAborted();
           } catch (error) {
             signal.throwIfAborted();

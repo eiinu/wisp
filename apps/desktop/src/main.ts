@@ -31,7 +31,19 @@ async function startDesktop() {
   ipcMain.handle('wisp:copy-text', (event, input: unknown) => { trusted(event); if (typeof input !== 'string' || input.length > 2_000_000) throw new Error('Invalid clipboard text'); clipboard.writeText(input); });
   ipcMain.handle('wisp:open-url', async (event, input: unknown) => { trusted(event); if (typeof input !== 'string' || input.length > 4096) throw new Error('Invalid URL'); const url = new URL(input); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Only web URLs are allowed'); await shell.openExternal(url.href); });
   ipcMain.handle('wisp:choose-directory', async event => { trusted(event); const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] }); return result.canceled ? undefined : result.filePaths[0]; });
+  const desktopCalls = new Map<string, AbortController>();
   host.on('message', async (message: any) => {
+    if(message?.type==='desktop-cancel'){desktopCalls.get(message.id)?.abort();return;}
+    if(message?.type==='desktop-request'&&typeof message.id==='string'){
+      if(desktopCalls.has(message.id))return;const controller=new AbortController();desktopCalls.set(message.id,controller);
+      try {
+        if(!browser)throw new Error('没有可读取的桌面网页标签');
+        const value=await browser.pageOperation(message.operation,message.payload,controller.signal);
+        if(host.connected&&!controller.signal.aborted)host.send({type:'desktop-response',id:message.id,value});
+      }catch(error){if(host.connected&&!controller.signal.aborted)host.send({type:'desktop-response',id:message.id,error:error instanceof Error?error.message:'桌面操作失败'});}
+      finally{desktopCalls.delete(message.id);}
+      return;
+    }
     // Recheck the initial snapshot if it timed out while secure storage initialized.
     if (message?.type === 'host-ready') { if (!window.isDestroyed()) window.webContents.send('wisp:notice', { type: 'changed' }); return; }
     if (message?.type === 'credential-request' && typeof message.id === 'string') {

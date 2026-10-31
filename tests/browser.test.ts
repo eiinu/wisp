@@ -46,3 +46,26 @@ it('reports download bytes from Electron, prompts for save and cancels without e
   expect(controller.command({type:'snapshot'}).downloads[0].state).toBe('cancelled'); expect(item.listenerCount('updated')).toBe(0);
   const denied={preventDefault:vi.fn()}; mocks.remote.emit('will-download',denied,item,{}); expect(denied.preventDefault).toHaveBeenCalled(); controller.dispose();
 });
+it('page read binds session, tab and navigation version, consumes approval once and never reads before approval',async()=>{
+ const {controller}=setup();controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://example.com'});
+ const wc=mocks.views[0].webContents;wc.executeJavaScriptInIsolatedWorld=vi.fn(async()=>({title:'Article',text:'visible article',links:[],truncated:false}));
+ const signal=new AbortController().signal;
+ const p=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);expect(p).toMatchObject({tabId:'a',url:'https://example.com/redirected'});expect(wc.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+ expect(await controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).toMatchObject({text:'visible article'});
+ await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).rejects.toThrow('过期');
+ const stale=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);wc.emit('did-start-navigation',{},'https://example.com/changed',false,true);
+ await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:stale.ticket},signal)).rejects.toThrow('改变');
+ const switched=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);controller.command({type:'context',sessionId:'other',id:'a'});
+ await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:switched.ticket},signal)).rejects.toThrow('当前会话');
+ await expect(controller.pageOperation('page.prepare',{sessionId:'other',tabId:'a'},signal)).rejects.toThrow('没有');
+ controller.command({type:'context',sessionId:'s',id:'a'});wc.isLoading=()=>true;
+ await expect(controller.pageOperation('page.prepare',{sessionId:'s'},signal)).rejects.toThrow('未加载');controller.dispose();
+});
+it('discards page results on navigation during extraction or cancellation',async()=>{
+ const {controller}=setup();controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://example.com'});
+ const wc=mocks.views[0].webContents,signal=new AbortController().signal;
+ wc.executeJavaScriptInIsolatedWorld=vi.fn(async()=>{wc.emit('did-start-navigation',{},'',false,true);return {text:'wrong page',links:[]};});
+ const p=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).rejects.toThrow('结果已丢弃');
+ const q=await controller.pageOperation('page.prepare',{sessionId:'s'},signal),cancel=new AbortController();wc.executeJavaScriptInIsolatedWorld=vi.fn(()=>new Promise(()=>{}));
+ const reading=controller.pageOperation('page.read',{sessionId:'s',ticket:q.ticket},cancel.signal);cancel.abort();await expect(reading).rejects.toThrow();controller.dispose();
+});

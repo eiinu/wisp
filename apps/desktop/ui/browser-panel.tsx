@@ -19,6 +19,7 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
   const tab = state.tabs.find(t => t.id === state.activeId), page = native.pages.find(p => p.id === tab?.id);
   const displayedUrl = page?.url ?? (tab?.kind === 'web' ? fallback[tab.id]?.url ?? tab.url : '');
   const command = async (input: Parameters<BrowserBridge['command']>[0]) => { try { if (browser) setNative(await browser.command(input)); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } };
+  useEffect(() => { if(browser) void command({type:'context',sessionId,id:tab?.kind==='web'?tab.id:undefined}); }, [browser,sessionId,tab?.id,tab?.kind]);
   useEffect(() => { if (!browser) return; const unsubscribe = browser.subscribe(setNative); void command({ type: 'snapshot' }); return unsubscribe; }, [browser]);
   useEffect(() => {
     if (!browser) return;
