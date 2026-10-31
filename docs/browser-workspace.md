@@ -21,3 +21,9 @@ Web 版使用 `sandbox="allow-scripts"` 的 iframe，无 same-origin、弹窗、
 运行 `pnpm web:build` 后可在同一静态服务的 `/qa.html` 查看真实组件测试页。它明确标记开发样例，用两个只读 fixture 文件验证渲染，不是生产会话或模型回复。该页面不包含在桌面生产构建中；实际文件读取、原生浏览器和下载仍需桌面实测。`index.html` 保留真实 Host 连接状态，不注入模拟会话。
 
 API 依据：[WebContentsView](https://www.electronjs.org/docs/latest/api/web-contents-view)、[NavigationHistory](https://www.electronjs.org/docs/latest/api/navigation-history)、[DownloadItem](https://www.electronjs.org/docs/latest/api/download-item)。
+
+## 分栏布局
+
+工作区位于会话侧栏旁，从应用内容顶部延伸到底部。对话与右侧标签区之间的分隔条支持拖拽；两侧各保留 300 px，不设右侧固定最大宽度。分隔条可用左右方向键调整 10 px，Shift 加速至 50 px，Home/End 移至边界。仅宽度比例保存在本地布局偏好中，不含会话、文件或凭据。
+
+不足 608 px 的可用分栏空间时，打开的工作区单独显示；点右上角“返回对话”可恢复对话。扩大窗口后恢复并校正原比例。拖拽期间捕获指针并暂时隐藏原生网页，结束后按实际 DOM 边界重新定位；取消拖拽恢复原比例。设置仍使用独立弹窗。

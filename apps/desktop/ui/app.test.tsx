@@ -6,8 +6,8 @@ import type { Notice, Request, Result, Snapshot, WorkbenchBridge } from '@wisp/c
 import { App } from './app.js';
 
 let container: HTMLDivElement, root: Root;
-beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; HTMLElement.prototype.scrollIntoView = vi.fn(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-afterEach(async () => { await act(() => root.unmount()); container.remove(); });
+beforeEach(() => { vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} }); (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; HTMLElement.prototype.scrollIntoView = vi.fn(); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+afterEach(async () => { await act(() => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 const snapshot = (): Snapshot => ({ sessions: ['one', 'two'].map(id => ({ id, title: `会话 ${id}`, createdAt: '2026-10-31', updatedAt: '2026-10-31' })), selectedId: 'one', events: [], keyPresent: false, browserConnected: false, config: { provider: 'offline', model: 'offline-test', baseUrl: '' } });
 function client(state = snapshot()) {
   let notice!: (event: Notice) => void;

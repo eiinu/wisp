@@ -1,6 +1,7 @@
-import React, { useReducer } from 'react';
+import React, { useReducer, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Markdown } from './markdown.js';
+import { SplitWorkspace } from './split-workspace.js';
 import { BrowserPanel } from './browser-panel.js';
 import { LinkConfirmationProvider } from './link-confirmation.js';
 import { previewReducer, type PreviewTarget } from './preview-model.js';
@@ -15,7 +16,8 @@ async function request(input: Request): Promise<Result> {
 }
 function QA() {
  const [state,dispatch]=useReducer(previewReducer,{tabs:[{kind:'workspace',id:'workspace',title:'样例文件'}],activeId:'workspace'});
- const open=(target:PreviewTarget)=>dispatch({type:'open',target});
- return <LinkConfirmationProvider onOpen={open}><div className="qa-banner">开发组件验证 · 测试样例 · 无模型 / 无 Host / 不写入文件。桌面原生导航和下载不在此 Web 页面验证。</div><div className="qa-layout"><main className="qa-content"><Markdown text={sample} source={{kind:'file',sessionId:'qa',workspace:'fixture-only',path:'readme.md'}}/><h3>流式未闭合样例</h3><Markdown text={'未完成公式 $\\frac{a}{b\n\n```python\nprint("streaming")'}/></main><BrowserPanel state={state} dispatch={dispatch} visible blocked={false} close={()=>dispatch({type:'open',target:{kind:'workspace'}})} sessionId="qa" workspace="fixture-only" connected active={false} request={request} chooseWorkspace={()=>{}}/></div></LinkConfirmationProvider>;
+ const [visible,setVisible]=useState(true);
+ const open=(target:PreviewTarget)=>{dispatch({type:'open',target});setVisible(true);};
+ return <LinkConfirmationProvider onOpen={open}><div className="qa-shell"><div className="qa-banner">开发组件验证 · 测试样例 · 无模型 / 无 Host / 不写入文件。桌面原生导航和下载不在此 Web 页面验证。</div><div className="qa-layout"><SplitWorkspace visible={visible} right={({dragging})=><BrowserPanel state={state} dispatch={dispatch} visible={visible} blocked={dragging} close={()=>setVisible(false)} sessionId="qa" workspace="fixture-only" connected active={false} request={request} chooseWorkspace={()=>{}}/>}><main className="qa-content"><button onClick={()=>setVisible(!visible)}>切换工作区</button><Markdown text={sample} source={{kind:'file',sessionId:'qa',workspace:'fixture-only',path:'readme.md'}}/><h3>流式未闭合样例</h3><Markdown text={'未完成公式 $\\frac{a}{b\n\n```python\nprint("streaming")'}/></main></SplitWorkspace></div></div></LinkConfirmationProvider>;
 }
 createRoot(document.getElementById('root')!).render(<QA/>);

@@ -63,3 +63,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .qa-layout { display: flex; height: calc(100vh - 60px); }
 .qa-content { flex: 1; min-width: 0; overflow: auto; padding: 32px; }
 .qa-layout .inspector { position: static; width: 46%; min-width: 320px; }
+/* Full-height split: the sidebar sits outside, so measurements use actual remaining width. */
+.split-workspace{display:flex;flex:1;min-width:0;height:100%;overflow:hidden;position:relative}
+.split-primary{display:flex;flex:1;min-width:0;overflow:hidden;height:100%}
+.split-primary>.workspace{width:100%;height:100%}
+.split-secondary{display:flex;flex:1;min-width:0;height:100%;overflow:hidden}
+.split-primary[hidden],.split-secondary[hidden]{display:none}
+.workspace-separator{flex:0 0 8px;cursor:col-resize;touch-action:none;position:relative;background:#f5f5f5;outline-offset:-2px}
+.workspace-separator:hover,.workspace-separator:focus-visible,.split-dragging .workspace-separator{background:#b8b8b8}
+.split-dragging{user-select:none;cursor:col-resize}
+.split-dragging iframe{pointer-events:none}
+.split-secondary .browser-inspector{position:static;inset:auto;width:100%;height:100%;flex:1;min-width:0;max-width:none;border-left:0;z-index:auto}
+.browser-tabbar{display:flex;flex:0 0 auto;min-width:0;border-bottom:1px solid #e7e7e7;min-height:48px;background:#fafafa}
+.browser-tabbar .browser-tabs{flex:1;min-width:0;border:0}
+.browser-tab-actions{display:flex;align-items:center;flex-shrink:0;padding:0 4px}
+.browser-tab-actions button{padding:7px}
+.browser-file{display:flex;flex-direction:column}
+.browser-file>.file-preview{flex:1;border:0;margin:0;border-radius:0;min-height:0;overflow:auto;padding:20px}
+.browser-file .file-toolbar{flex:0 0 auto;min-width:0;border-bottom:1px solid #eee}
+.file-location{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:8px;font-size:12px}
+.browser-file .preview-title{justify-content:flex-end;margin-bottom:8px}
+.browser-viewport iframe{min-height:0}
+.qa-layout{height:calc(100dvh - 60px)}
+.qa-layout .split-secondary .inspector{width:100%;min-width:0}
+.split-narrow .split-secondary{width:100%}
+.split-primary{container-type:inline-size}
+@container(max-width:420px){.topbar{padding-inline:8px;gap:4px}.top-actions button span{display:none}.model-button{gap:5px}.model-button span{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.suggestions{grid-template-columns:1fr}.messages{padding-inline:16px}.composer-area{padding-inline:12px}.composer-toolbar small{display:none}}
+.split-narrow .browser-tab-actions button:last-child::after{content:'返回对话';font-size:11px;margin-left:4px}
+.qa-shell{height:100dvh;display:flex;flex-direction:column}
+.qa-shell .qa-layout{height:auto;flex:1;min-height:0}
