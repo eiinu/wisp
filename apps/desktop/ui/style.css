@@ -165,21 +165,22 @@
 .project-directory,.project-new-chat,.archive-entry,.new-chat{justify-content:flex-start}
 
 /* Shared interaction treatment; no universal outline removal. */
-:root{--focus-color:#657c8e;--focus-border:#82929e}
+:root{--focus-color:#657c8e;--focus-border:#657c8e}
 :is(button,a,input,textarea,select,summary,[tabindex]):focus:not(:focus-visible){outline:none}
 :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible{outline:2px solid var(--focus-color);outline-offset:2px}
-input:not([type=checkbox]):not([type=radio]):focus,textarea:focus,select:focus{border-color:var(--focus-border)}
+/* Text controls merge the ring with their border, instead of drawing a second frame. */
+:is(input:is(:not([type]),[type=text],[type=password],[type=email],[type=url],[type=search],[type=tel],[type=number]),textarea):focus{border-color:var(--focus-border);outline:2px solid var(--focus-color);outline-offset:-2px}
+select:focus{border-color:var(--focus-border)}
 .browser-address input:focus{background:#fff;border-color:var(--focus-border)}
-.composer:focus-within{border-color:var(--focus-border)}
-/* The composer is one input surface: show the keyboard ring on its frame. */
-.composer:has(textarea:focus-visible){outline:2px solid var(--focus-color);outline-offset:2px}
+.composer:focus-within{border-color:var(--focus-border);outline:2px solid var(--focus-color);outline-offset:-2px}
+/* The composer uses the same single inset edge on the outer input surface. */
 .composer textarea:focus{outline:none}
 input:is([type=checkbox],[type=radio]){appearance:auto;width:auto;height:auto;padding:0;border:revert;background:revert;border-radius:revert;accent-color:#526878;vertical-align:middle}
 input:disabled,textarea:disabled,select:disabled{opacity:.55;cursor:not-allowed}
 select{appearance:auto}
 @media(forced-colors:active){
  :root{--focus-color:Highlight;--focus-border:Highlight}
- :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible,.composer:has(textarea:focus-visible){outline-color:Highlight}
+ :is(button,a,input,textarea,select,summary,[tabindex]):focus-visible,.composer:focus-within{outline-color:Highlight}
  input:disabled,textarea:disabled,select:disabled,button:disabled{color:GrayText;opacity:1}
  input,textarea,select,.composer{border-color:ButtonText}
  input:focus,textarea:focus,select:focus,.composer:focus-within{border-color:Highlight}

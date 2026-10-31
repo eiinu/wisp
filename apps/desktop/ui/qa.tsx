@@ -9,7 +9,7 @@ import { previewReducer, type PreviewTarget } from './preview-model.js';
 import type { Request, Result, ProjectInfo, SessionInfo } from '@wisp/core';
 import { WorkspaceIcon, iconPaths } from './workspace-icon.js';
 import './style.css';
-const sample = '# Markdown 组件样例\n\n行内公式 $a+b=c$ 与 $\\frac{1}{2}\\pi r^2$。\n\n$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$\n\n```typescript\nconst greeting: string = "Hello Wisp";\nconsole.log(greeting);\n```\n\n| 类型 | 状态 |\n| --- | --- |\n| 数学 | 本地排版 |\n| 高亮 | 8 种语言 |\n\n[打开 example.com](https://example.com) · [打开纯文本文件](notes.txt)\n\n> 所有内容均为开发测试样例，没有模型或 Host 连接。';
+const sample = '# Markdown 组件样例\n\n行内公式 $a+b=c$ 与 $\\frac{1}{2}\\pi r^2$。\n\n$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$\n\n```typescript\nconst greeting: string = "Hello Wisp";\nconsole.log(greeting);\n```\n\n| 类型 | 状态 |\n| --- | --- |\n| 数学 | 本地排版 |\n| 高亮 | 8 种语言 |\n\n[打开 example.com](https://example.com) · [打开纯文本文件](notes.txt)\n\n> 所有内容均为开发测试样例，没有模型或 Host 连接。\n\n## 列表排版样例\n\n- 普通列表第一项\n- 普通列表第二项\n  - 二级列表\n    - 三级列表\n\n1. 编号列表第一项\n2. 编号列表第二项\n   1. 嵌套编号一\n   2. 嵌套编号二\n\n- [x] 已完成任务样例\n- [ ] 未完成任务样例';
 const fixtures = { 'readme.md': sample, 'notes.txt': '开发测试纯文本文件\n\n$a+b=c$ 在 txt 中保持原文。\n<script>不会执行</script>\n中文与 UTF-8 😀' };
 async function fixtureRequest(input: Request): Promise<Result> {
   if(input.type==='files.list') return { entries: Object.entries(fixtures).map(([path,text])=>({path,name:path,kind:'file',size:new TextEncoder().encode(text).length})) };

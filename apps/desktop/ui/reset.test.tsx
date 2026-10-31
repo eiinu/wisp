@@ -20,8 +20,8 @@ it('replaces browser focus with visible keyboard and forced-colors indicators, i
  expect(styles).not.toMatch(/\*\s*\{[^}]*outline\s*:\s*(none|0)/);
  expect(styles).toContain(':focus:not(:focus-visible){outline:none}');
  expect(styles).toContain(':focus-visible{outline:2px solid var(--focus-color);outline-offset:2px}');
- expect(styles).toContain('.composer:has(textarea:focus-visible){outline:2px solid var(--focus-color)');
- expect(styles).toContain('.composer:focus-within{border-color:var(--focus-border)}');
+ expect(styles).toContain('.composer:focus-within{border-color:var(--focus-border);outline:2px solid var(--focus-color);outline-offset:-2px}');
+ expect(styles).not.toContain('.composer:has(textarea:focus-visible)');
  expect(styles).toContain('@media(forced-colors:active)');expect(styles).toContain('outline-color:Highlight');expect(styles).toContain('color:GrayText;opacity:1');
 });
 it('keeps Markdown list, table, highlighted code and math structure for style QA',()=>{
@@ -29,4 +29,21 @@ it('keeps Markdown list, table, highlighted code and math structure for style QA
  expect(element.querySelector('h1')?.textContent).toBe('Heading');expect(element.querySelector('ul li')).not.toBeNull();expect(element.querySelector('ol li')).not.toBeNull();
  expect(element.querySelector<HTMLInputElement>('input[type=checkbox]')?.disabled).toBe(true);
  expect(element.querySelector('table th')).not.toBeNull();expect(element.querySelector('.hljs-keyword')).not.toBeNull();expect(element.querySelectorAll('.katex')).toHaveLength(2);expect(element.querySelector('.katex-display')).not.toBeNull();
+});
+
+it('merges text focus into the border while preserving separate keyboard rings for choice controls',()=>{
+ const textRule=styles.match(/:is\(input:is\([^}]+\):focus\{[^}]+\}/)![0];
+ const generic=styles.match(/:is\(button,a,input,textarea,select,summary,\[tabindex\]\):focus-visible\{[^}]+\}/)![0];
+ const style=document.createElement('style');style.textContent=generic+'\n'+textRule;document.head.append(style);
+ const fixture=document.createElement('div');document.body.append(fixture);
+ try {
+  for(const type of ['', 'text','password','email','url','search','tel','number']){
+   fixture.innerHTML=`<input ${type?`type="${type}"`:''}/>`;const input=fixture.firstElementChild as HTMLInputElement;input.focus();
+   expect(getComputedStyle(input).outlineOffset).toBe('-2px');
+  }
+  fixture.innerHTML='<textarea></textarea>';const textarea=fixture.firstElementChild as HTMLTextAreaElement;textarea.focus();expect(getComputedStyle(textarea).outlineOffset).toBe('-2px');
+  for(const markup of ['<button>Action</button>','<a href="#">Link</a>','<input type="checkbox"/>','<input type="radio"/>','<select><option>A</option></select>']){
+   fixture.innerHTML=markup;const control=fixture.firstElementChild as HTMLElement;control.focus();expect(getComputedStyle(control).outlineOffset).toBe('2px');
+  }
+ }finally{fixture.remove();style.remove();}
 });
