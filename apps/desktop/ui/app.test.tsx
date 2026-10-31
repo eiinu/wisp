@@ -205,3 +205,18 @@ it('groups settings actions while keeping cancel available when the Host is disc
  const buttons=actions.querySelectorAll('button');expect(buttons[0].disabled).toBe(false);expect(buttons[1].disabled).toBe(true);expect(buttons[2].disabled).toBe(true);
  await act(()=>buttons[0].click());expect(container.querySelector('.settings-page')).toBeNull();
 });
+it('announces settings results beside actions and restores submit focus only if the user did not move it',async()=>{
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));await click('设置');
+ const save=button('保存设置'),form=save.form!;
+ for(const move of [false,true]){
+  let release!:(r:Result)=>void;c.request.mockImplementationOnce(()=>new Promise(done=>{release=done;}));
+  save.focus();await act(()=>form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+  // jsdom keeps a disabled button focused; model the browser's focus drop explicitly.
+  const activeElement=move?undefined:vi.spyOn(document,'activeElement','get').mockReturnValue(document.body);
+  const restored=vi.spyOn(save,'focus');restored.mockClear();
+  const nav=container.querySelector<HTMLButtonElement>('.settings-navigation nav button:last-child')!;
+  if(move)await act(()=>nav.focus());
+  await act(()=>release({}));expect(restored).toHaveBeenCalledTimes(move?0:1);activeElement?.mockRestore();restored.mockRestore();expect(document.activeElement).toBe(move?nav:save);
+  const feedback=form.querySelector('.settings-feedback')!;expect(feedback.getAttribute('aria-live')).toBe('polite');expect(feedback.textContent).toContain('设置已保存');expect(feedback.nextElementSibling?.className).toBe('settings-actions');
+ }
+});

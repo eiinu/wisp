@@ -19,3 +19,7 @@
 @media(max-width:480px){.settings-page{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}.settings-navigation{border-right:0;border-bottom:1px solid var(--border-subtle)}.settings-back{margin-bottom:8px}.settings-navigation h1{display:none}.settings-navigation nav{display:flex;gap:8px}.settings-navigation nav button{padding:8px 12px}.settings-content{padding:24px 16px}.settings-content header{margin-bottom:24px}}
 .settings-row :is(input:not([type=checkbox]),select):focus{border-color:var(--focus-border)}
 @media(forced-colors:active){.settings-row :is(input,select){border-color:ButtonText}.settings-row :is(input,select):focus{border-color:Highlight}}
+.settings-feedback{min-height:40px;max-height:140px;overflow:auto;margin-top:16px;overflow-wrap:anywhere}
+.settings-feedback p[role=status],.settings-feedback .error{margin:0;padding:8px 0}
+.settings-feedback .error{padding:8px 12px}
+.settings-feedback+.settings-actions{margin-top:8px}
