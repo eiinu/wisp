@@ -32,7 +32,9 @@ it('isolates remote pages, rejects unsafe navigation, reflects real history and 
   expect(() => controller.command({type:'layout',id:'a',bounds:{x:-1,y:0,width:500,height:500}})).toThrow();
   const popup = wc.setWindowOpenHandler.mock.calls[0][0]; expect(popup({url:'https://example.org'})).toEqual({action:'deny'}); expect(window.webContents.send).toHaveBeenCalledWith('wisp:browser-open-request','https://example.org/');
   controller.command({type:'close',id:'a'}); expect(wc.close).toHaveBeenCalledWith({waitForBeforeUnload:false}); expect(wc.eventNames()).toHaveLength(0); expect(window.contentView.removeChildView).toHaveBeenCalledWith(view);
-  controller.dispose(); expect(mocks.remote.listenerCount('will-download')).toBe(0);
+  controller.command({type:'open',id:'b',url:'https://example.org'});
+  window.emit('close'); expect(mocks.views[1].webContents.close).toHaveBeenCalledOnce(); expect(mocks.remote.listenerCount('will-download')).toBe(0);
+  expect(() => controller.command({type:'snapshot'})).toThrow('Browser unavailable');
 });
 it('reports download bytes from Electron, prompts for save and cancels without executing files', () => {
   const {controller}=setup(); controller.command({type:'open',id:'a',url:'https://example.com'});

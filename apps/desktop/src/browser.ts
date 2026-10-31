@@ -28,7 +28,7 @@ export function createBrowser(window: BrowserWindow) {
   function close(id: string) {
     const page = pages.get(id); if (!page) return;
     pages.delete(id); window.contentView.removeChildView(page.view);
-    page.view.webContents.removeAllListeners(); page.view.webContents.close({ waitForBeforeUnload: false });
+    page.view.webContents.removeAllListeners(); if (!page.view.webContents.isDestroyed()) page.view.webContents.close({ waitForBeforeUnload: false });
   }
   function open(id: string, url: string) {
     let page = pages.get(id);
@@ -81,6 +81,7 @@ export function createBrowser(window: BrowserWindow) {
   const hide = () => { for (const page of pages.values()) page.view.setVisible(false); };
   window.on('resize', hide);
   function dispose() { if (disposed) return; disposed = true; remote.removeListener('will-download', download); window.removeListener('resize', hide); for (const id of pages.keys()) close(id); for (const d of downloads.values()) d.item?.cancel(); }
-  window.once('closed', dispose);
+  // Detach children before BrowserWindow destroys its native contentView.
+  window.once('close', dispose);
   return { command, dispose };
 }
