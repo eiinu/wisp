@@ -47,7 +47,7 @@ pnpm web
 - `http.ts`：loopback、精确 Host 与 Origin、随机 Bearer 令牌、受限 JSON POST 和带认证的事件流；无通配 CORS，不提供远程工具服务。请求凭据不写日志。
 - `apps/desktop/src`：独立 Host 子进程，受限 IPC，来源和主 frame 检查，Renderer 无 Node 权限，沙箱开启。外部链接仅接受显式用户请求的 HTTP(S) URL。
 - `apps/desktop/ui`：桌面与 Web 验证入口共用工作台；正常入口不伪装 Host，`qa.html` 可使用明确标注的内存样例。
-- `mcp.ts` / `browser.ts`：官方 Playwright MCP stdio 接入，每会话独立隔离浏览器；显式连接后注册受限工具，全部经过 Host 审批。工具名使用模型兼容的字母/数字/下划线格式。
+- `local-mcp.ts`：用户配置的标准 stdio MCP 管理、工具发现及逐次审批；不内置特定服务。配置和安全边界见 [本地 MCP](local-mcp.md)。
 
 对话与文件 Markdown 统一使用 react-markdown + remark-gfm，支持段落、标题、列表、代码块、表格、任务列表与安全链接；不执行原始 HTML、不自动加载外部图片。扩展与文本预览边界见 [Markdown 文档](markdown.md)。图片预览仅支持 PNG/JPEG/GIF/WebP。Web iframe 可能被目标站点的嵌入策略拒绝；详见 [浏览工作区](browser-workspace.md)。
 
@@ -75,5 +75,5 @@ git diff --check
 
 - [macOS arm64 打包、下载与签名状态](packaging.md)
 - [浏览工作区及 Web 限制](browser-workspace.md)
-- [Playwright MCP 接入与生命周期](browser-automation.md)
+- [本地 MCP 配置与生命周期](local-mcp.md)
 - [界面验证记录](ui-verification.md)

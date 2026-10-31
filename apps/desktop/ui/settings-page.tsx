@@ -2,13 +2,14 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ModelConfig, ModelInfo, Request, Result, Snapshot } from '@wisp/core';
 import { WorkspaceIcon } from './workspace-icon.js';
 import './settings-page.css';
+import { McpSettings } from './mcp-settings.js';
 
 const defaults: ModelConfig = { provider: 'deepseek', model: 'deepseek-flash', baseUrl: 'https://api.deepseek.com' };
 export function SettingsPage({ initialSection = 'model', snapshot, connected, sessionId, request, onBack, onConnect, onRetry }: {
-  initialSection?: 'model'|'connection'; snapshot: Snapshot; connected: boolean; sessionId?: string;
+  initialSection?: 'model'|'connection'|'mcp'; snapshot: Snapshot; connected: boolean; sessionId?: string;
   request(input: Request): Promise<Result>; onBack(): void; onConnect(token: string): Promise<void>; onRetry(): void;
 }) {
-  const [section, setSection] = useState<'model'|'connection'>(initialSection);
+  const [section, setSection] = useState<'model'|'connection'|'mcp'>(initialSection);
   const [config, setConfig] = useState<ModelConfig>(() => ({ ...snapshot.config ?? defaults }));
   const [apiKey, setApiKey] = useState(''), [remember, setRemember] = useState(true), [token, setToken] = useState('');
   const [models, setModels] = useState<ModelInfo[]>([]), [pending, setPending] = useState(false);
@@ -22,7 +23,8 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
     if (!previous.moved && previous.element.isConnected && !previous.element.matches(':disabled') && (document.activeElement === document.body || document.activeElement === document.documentElement || document.activeElement === previous.element)) previous.element.focus();
   }, [pending]);
   useEffect(() => () => restore.current?.cleanup(), []);
-  const dirty = JSON.stringify(config) !== JSON.stringify(saved.current.config) || remember !== saved.current.remember || !!apiKey || !!token;
+  const [mcpDirty,setMcpDirty] = useState(false);
+  const dirty = mcpDirty || JSON.stringify(config) !== JSON.stringify(saved.current.config) || remember !== saved.current.remember || !!apiKey || !!token;
   const running = snapshot.sessions.some(session => !!session.activeRunId);
   const simulator = snapshot.config?.model === 'wisp-dev-simulator';
   const editable = connected && !running && !simulator;
@@ -70,14 +72,13 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
     document.addEventListener('keydown', trap); return () => { document.removeEventListener('keydown', trap); if (previous.isConnected) previous.focus(); };
   }, [confirmLeave]);
   const feedback = <div className="settings-feedback" aria-live="polite" aria-atomic="true">{pending ? <p role="status">正在处理，请稍候…</p> : error ? <p className="error" role="alert">{error}</p> : dirty ? <p role="status">有未保存的更改</p> : status ? <p role="status">{status}</p> : null}</div>;
-  const browser = snapshot.browserSessions?.[sessionId ?? ''];
   return <main className="settings-page" ref={page} tabIndex={-1} aria-label="设置页面">
     <aside className="settings-navigation" inert={confirmLeave}>
       <button className="settings-back" onClick={back} disabled={pending}><WorkspaceIcon name="back"/>返回工作台</button><h1>设置</h1>
-      <nav aria-label="设置分类"><button aria-current={section === 'model' ? 'page' : undefined} onClick={() => setSection('model')}><WorkspaceIcon name="model"/>模型</button><button aria-current={section === 'connection' ? 'page' : undefined} onClick={() => setSection('connection')}><WorkspaceIcon name="workspace"/>本机连接</button></nav>
+      <nav aria-label="设置分类"><button aria-current={section === 'model' ? 'page' : undefined} onClick={() => setSection('model')}><WorkspaceIcon name="model"/>模型</button><button aria-current={section === 'connection' ? 'page' : undefined} onClick={() => setSection('connection')}><WorkspaceIcon name="workspace"/>本机连接</button><button aria-current={section === 'mcp' ? 'page' : undefined} onClick={() => setSection('mcp')}><WorkspaceIcon name="settings"/>本地 MCP</button></nav>
     </aside>
     <div className="settings-scroll" inert={confirmLeave}><div className="settings-content">
-      <header><h2>{section === 'model' ? '模型' : '本机连接'}</h2><p>{section === 'model' ? '管理模型与 API 凭据。由本机直接访问你配置的服务。' : '查看工作台与本机服务的连接状态。'}</p></header>
+      <header><h2>{section === 'model' ? '模型' : section === 'mcp' ? '本地 MCP' : '本机连接'}</h2><p>{section === 'model' ? '管理模型与 API 凭据。由本机直接访问你配置的服务。' : section === 'mcp' ? '管理自定义服务及可供对话调用的工具。' : '查看工作台与本机服务的连接状态。'}</p></header>
       <section hidden={section !== 'model'}>
         {!connected && <p className="settings-note">本机服务未连接，连接后可保存设置。</p>}{running && <p className="settings-note">有任务正在运行，结束后即可修改配置。</p>}{simulator && <p className="settings-note">开发模拟使用固定假凭据，不接受真实 Key。退出模拟后运行普通工作台才能配置。</p>}
         <form onSubmit={e => { e.preventDefault(); if (editable) void task(save); }}>
@@ -95,10 +96,11 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
             <div className="settings-actions"><button type="button" className="settings-cancel" disabled={pending} onClick={back}>取消并返回</button>{config.provider !== 'offline' && <button type="button" disabled={pending || !editable} onClick={e => { if (!e.currentTarget.form?.reportValidity()) return; void task(async () => { await save(); setStatus('正在查询可用模型…'); const result = await request({type:'model.list'}); setModels(result.models ?? []); setStatus(`设置已保存，找到 ${result.models?.length ?? 0} 个模型`); }); }}>保存并查询模型</button>}<button className="primary" type="submit" disabled={pending || !editable}>保存设置</button></div>
         </form>
       </section>
-      <section hidden={section !== 'connection'}><h3>工作台</h3><div className="settings-group"><div className="settings-row"><span>本机服务<small>任务与文件访问在你的电脑上执行</small></span><strong>{connected ? '已连接' : '未连接'}</strong></div><div className="settings-row"><span>浏览器自动化<small>{browser?.message ?? '与手动浏览网页独立，需要本机配置'}</small></span><strong>{browser?.state === 'connected' ? '已连接' : '未连接'}</strong></div></div>
+      <section hidden={section !== 'connection'}><h3>工作台</h3><div className="settings-group"><div className="settings-row"><span>本机服务<small>任务与文件访问在你的电脑上执行</small></span><strong>{connected ? '已连接' : '未连接'}</strong></div></div>
         {!connected && (window.wisp ? <button className="settings-reconnect" disabled={pending} onClick={onRetry}>重新连接</button> : <form className="settings-connect" onSubmit={e => {e.preventDefault();void task(async()=>{await onConnect(token);setToken(current => current === token ? '' : current);setStatus('本机服务已连接');});}}><p className="settings-note">在本机运行 pnpm web 后使用终端给出的链接。托管预览不能连接你电脑的 localhost；令牌仅存在内存。</p><label>同源 Host 连接令牌<input type="password" autoComplete="off" required value={token} onChange={e=>setToken(e.target.value)}/></label><button disabled={pending} className="primary">连接</button></form>)}
         {feedback}
       </section>
+      <div hidden={section !== 'mcp'}><McpSettings servers={snapshot.mcpServers??[]} connected={connected} request={request} onDirty={setMcpDirty}/></div>
     </div></div>
     {confirmLeave && <div className="modal-backdrop"><section ref={confirm} tabIndex={-1} className="modal" role="alertdialog" aria-modal="true" aria-labelledby="settings-unsaved-title"><div className="modal-heading"><h2 id="settings-unsaved-title">有尚未保存的更改</h2></div><div className="modal-body"><p>离开会放弃未保存的配置与输入的凭据。</p><div className="modal-actions"><button disabled={pending} onClick={()=>setConfirmLeave(false)}>继续编辑</button><button disabled={pending} onClick={onBack}>放弃更改并返回</button></div></div></section></div>}
   </main>;

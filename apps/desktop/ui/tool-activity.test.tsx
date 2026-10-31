@@ -45,3 +45,9 @@ it('search results open only scoped file previews and replacement keeps its prev
  await render(<ToolActivity events={search} ended canPreview={false} previewUnavailableReason="未授权" openFile={open}/>);expect(container.querySelector('button')!.disabled).toBe(true);
  const replace=events.map(e=>({...e,data:e.type==='tool_requested'?{id:'c',name:'files_replace',args:{path:'note.md',oldText:'old',newText:'new'}}:e.data}));await render(<ToolActivity events={replace} ended canPreview openFile={open}/>);expect(container.textContent).toContain('定点修改');expect(container.querySelector('button')!.textContent).toContain('预览文件');
 });
+it('shows MCP service and remote name within the existing execution hierarchy without granting file preview',async()=>{
+ const mcpEvents=events.map(e=>({...e,data:e.type==='tool_requested'?{...e.data,name:'mcp_opaque_echo',source:{serviceId:'fixture',serviceName:'QA 服务',toolName:'echo'}}:e.data}));
+ await render(<ToolActivity events={mcpEvents} ended canPreview openFile={vi.fn()}/>);
+ expect(container.querySelector('.tool-trace summary strong')?.textContent).toBe('QA 服务 · echo');
+ expect(container.querySelector('button')).toBeNull();expect(container.querySelector<HTMLDetailsElement>('.execution-process')!.open).toBe(false);
+});

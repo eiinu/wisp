@@ -38,15 +38,15 @@ node scripts/package-manifest.mjs
 - `apps/desktop/dist/preload.cjs`：开启 contextIsolation/sandbox 的受限桥接。
 - `apps/desktop/ui-dist/`：本地 Renderer，不依赖 Vite 开发服务器。
 - `apps/host/dist/main.js`：独立 Host。
-- `node_modules/`：pi-ai、MCP SDK、Playwright MCP 及生产传递依赖。
+- `node_modules/`：pi-ai、MCP SDK、JSON Schema 校验器 及生产传递依赖。
 
-首版使用真实目录而非 ASAR，保持相对路径和 Node 子进程依赖解析。Host 通过随安装包提供的 Electron 可执行文件以 `ELECTRON_RUN_AS_NODE=1` 运行，用户不需要安装 Node。MCP 子进程同样复用该可执行文件；不能在后续 Electron fuse 配置中关闭 RunAsNode 而不同时调整 Host 启动方式。
+首版使用真实目录而非 ASAR，保持相对路径和 Node 子进程依赖解析。Host 通过随安装包提供的 Electron 可执行文件以 `ELECTRON_RUN_AS_NODE=1` 运行，用户不需要安装 Node。用户自定义 MCP 使用用户配置的可执行文件及其本机运行环境，不自动安装运行时；不能在后续 Electron fuse 配置中关闭 RunAsNode 而不同时调整 Host 启动方式。
 
-`verify-package.mjs` 检查入口、静态资源、依赖路径、外部符号链接和执行架构，并实际启动包内 Host 完成 IPC/离线 Agent 任务，随后用包内 Electron 与 MCP 完成握手和工具发现。它不调用收费模型、不读取用户凭据，也不启动浏览器。工作流在最终 .app 生成后运行该检查，失败不上传产物。
+`verify-package.mjs` 检查入口、静态资源、依赖路径、外部符号链接和执行架构，并实际启动包内 Host 完成 IPC/离线 Agent 任务，随后用包内 Electron 运行临时协议夹具，与 MCP 客户端完成握手和工具发现。夹具仅供验证，不随产品预配置。它不调用收费模型、不读取用户凭据，也不启动浏览器。工作流在最终 .app 生成后运行该检查，失败不上传产物。
 
 `tests/desktop-startup.test.ts` 单独验证 Electron ESM 入口必须在 `ready` 之前完成模块加载，然后才创建窗口与启动 Host；窗口创建不等待 Host ready。该测试模拟 Electron 生命周期，并覆盖页面加载失败后的报错退出，不能替代 macOS GUI 实机验收。主入口不得在顶层 `await app.whenReady()`：Electron 45.1.0 的 [ESM 加载实现](https://github.com/electron/electron/blob/v45.1.0/lib/browser/init.ts) 在入口导入结束后才调用 `appCodeLoaded()`，顶层等待 ready 会形成启动死锁。
 
-安装包包含 MCP 协议服务，但不包含独立 Playwright Chromium 浏览器二进制；Electron 内嵌 Chromium 不等于可供 Playwright 工具使用的浏览器。本机未准备匹配浏览器时自动化连接会失败，不能报告已连接。浏览器 UI 接线状态见 [Playwright MCP 接入](browser-automation.md)。
+安装包只包含 MCP 客户端，不内置任何 MCP 服务或独立浏览器二进制。用户需要自行安装所需服务与运行时，再到设置页添加。见 [本地 MCP 管理](local-mcp.md)。
 
 ## 签名、系统凭据与验收边界
 

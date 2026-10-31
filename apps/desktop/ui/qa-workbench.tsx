@@ -34,12 +34,13 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   };
   if(web) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) { e.data.name='open_webpage';e.data.args={url:'https://example.com/'}; e.data.description='打开网页展示样例：批准后在右侧请求加载 example.com；不读取页面，可能受到嵌入限制。'; }
   const basicSamples:Record<string,{args:Record<string,unknown>;description:string}>= {
+    mcp_qa_echo:{args:{text:'仅 QA 内存参数'},description:'调用本地 MCP「QA 服务」的 echo。仅演示审批，不启动进程。第三方 MCP 使用系统权限，不受项目目录限制。'},
     files_replace:{args:{path:'notes.txt',oldText:'补充笔记：仅 QA 内存数据',newText:'修改后的 QA 内存笔记'},description:'定点修改 notes.txt（仅内存样例）\n--- 原内容\n补充笔记：仅 QA 内存数据\n+++ 新内容\n修改后的 QA 内存笔记\n真实工具批准后重新校验文件版本。'},
     files_mkdir:{args:{path:'new-folder'},description:'创建 new-folder（仅 QA 内存结果，不创建磁盘目录）'},
     files_move:{args:{path:'notes.txt',destination:'renamed.txt'},description:'移动 notes.txt → renamed.txt（仅 QA 内存映射）\n真实工具不覆盖已有目标；目录逐项移动可能部分完成。'},
     files_trash:{args:{path:'notes.txt'},description:'将 notes.txt 移入废纸篓（仅 QA 内存移除，不触及系统废纸篓）'},
   };
-  if(basicSamples[basic]) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) {e.data.name=basic;e.data.args=basicSamples[basic].args;e.data.description=basicSamples[basic].description;}
+  if(basicSamples[basic]) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) {e.data.name=basic;if(basic==='mcp_qa_echo')e.data.source={serviceId:'qa-service',serviceName:'QA 服务',toolName:'echo'};e.data.args=basicSamples[basic].args;e.data.description=basicSamples[basic].description;}
   state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,
     event('search-request','completed-fixture','tool_requested',{step:1,id:'search-fixture',name:'files_search',args:{path:'',query:'QA',mode:'content'}}),
     event('search-result','completed-fixture','tool_result',{callId:'search-fixture',text:JSON.stringify({matches:[{path:'notes.txt',line:1,snippet:'补充笔记：仅 QA 内存数据'}],truncated:false})}));
@@ -88,6 +89,23 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
       if(input.type==='preview.tabs.claim'){if(!query||query.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.claimed=true;return{};}
       if(input.type==='preview.tabs.complete'){if(!query?.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.resolve(input.tabs);return{};}
       if(input.type==='snapshot')return{snapshot:structuredClone(state)};
+      // Explicit UI-only MCP fixture: never spawns a process or stores env values.
+      if(input.type==='mcp.save'){
+        const id=input.id??crypto.randomUUID(),item={...input.config,id,envNames:input.env?Object.keys(input.env):state.mcpServers?.find(s=>s.id===id)?.envNames??[],envStorage:(input.env===undefined?state.mcpServers?.find(s=>s.id===id)?.envStorage??'none':Object.keys(input.env).length?(input.rememberEnv?'secure':'session'):'none') as 'secure'|'session'|'none',state:'disabled' as const,tools:[],message:'QA 内存配置；没有启动进程或保存凭据'};
+        state.mcpServers=[...(state.mcpServers??[]).filter(s=>s.id!==id),item];changed();return{};
+      }
+      if(input.type==='mcp.activate'||input.type==='mcp.disable'||input.type==='mcp.delete'||input.type==='mcp.refresh'){
+        const item=state.mcpServers?.find(s=>s.id===input.id);if(!item)throw new Error('QA 样例服务不存在');
+        if(input.type==='mcp.delete')state.mcpServers=state.mcpServers?.filter(s=>s.id!==input.id);
+        else if(input.type==='mcp.activate'){
+          item.state='connecting';changed();await new Promise(resolve=>setTimeout(resolve,900));
+          if(item.state!=='connecting')return{};
+          item.state=item.command==='fail'?'failed':'connected';item.message=item.state==='failed'?'QA 模拟启动失败，没有真实进程':'QA 模拟连接；未启动真实 MCP';
+          item.tools=item.state==='connected'?[{name:'mcp_qa_echo',remoteName:'echo',description:'QA 工具展示，没有执行实现'}]:[];
+        }else if(input.type==='mcp.disable'){item.state='disabled';item.tools=[];item.message='QA 模拟已禁用';}
+        changed();return{};
+      }
+
       if(input.type==='session.select'){state.selectedId=input.sessionId;changed();return{};}
       if(input.type==='preview.claim'){if(!previewResolve||previewClaimed||input.ticket!==ticket||input.sessionId!==state.selectedId)throw new Error('样例请求已失效');previewClaimed=true;return{preview:{ticket,url:'https://example.com/'}};}
       if(input.type==='preview.complete'){if(!previewResolve||!previewClaimed||input.ticket!==ticket)throw new Error('样例请求已失效');const done=previewResolve;previewResolve=undefined;done(input.accepted);return{};}
@@ -117,7 +135,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         if(input.allowed&&basic==='files_trash')files.delete('notes.txt');
         if(input.allowed&&!web&&!basic) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
         state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_resolved',{callId:'call-fixture',allowed:input.allowed}));
-        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
+        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='mcp_qa_echo'?'仅 QA MCP 结果样例；未启动进程、未调用真实工具':basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
         state.events.push(event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
