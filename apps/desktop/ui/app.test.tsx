@@ -260,3 +260,10 @@ it('consumes MCP confirmation Escape before leaving settings and restores its tr
  await act(()=>document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})));
  expect(container.querySelector('.settings-page')).toBeNull();
 });
+it('keeps pending clarification outside collapsed tool activity and isolates it on session changes',async()=>{
+ const state=snapshot();state.sessions[0].activeRunId='run-q';const question={title:'任务偏好',questions:[{id:'one',title:'希望如何输出？',type:'single',required:true,options:[{id:'a',label:'简短'},{id:'b',label:'详细'}]}]};
+ state.events=[{version:1,id:'start-q',sessionId:'one',runId:'run-q',at:'',type:'started',data:{prompt:'整理资料'}},{version:1,id:'call-q',sessionId:'one',runId:'run-q',at:'',type:'tool_requested',data:{id:'q',name:'ask_user',args:question}},{version:1,id:'pending-q',sessionId:'one',runId:'run-q',at:'',type:'question_requested',data:{ticket:'ticket-q',callId:'q',questionnaire:question}}];
+ const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));
+ const process=container.querySelector<HTMLDetailsElement>('.execution-process')!;process.open=false;expect(container.querySelector('.questionnaire')?.closest('details')).toBeNull();expect(container.textContent).toContain('等待回答');expect(container.querySelector('.approval')).toBeNull();
+ await click('会话 two');expect(container.querySelector('.questionnaire')).toBeNull();await click('会话 one');await click('暂不回答');expect(c.request).toHaveBeenCalledWith({type:'run.answer',sessionId:'one',runId:'run-q',ticket:'ticket-q',response:{status:'cancelled'}});expect(c.request.mock.calls.some(([r])=>r.type==='run.approve')).toBe(false);
+});

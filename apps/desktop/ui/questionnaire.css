@@ -1,0 +1,20 @@
+.interaction-card { border:1px solid var(--border,#dedede); border-radius:16px; padding:16px; margin:16px 0; min-width:0; overflow-wrap:anywhere; background:var(--surface,#fff); }
+.interaction-card h3 {font-size:15px;font-weight:600;margin:0 0 12px;}
+.question-note,.question-progress,.questionnaire small {font-size:12px;color:var(--muted,#666);}
+.question-progress {margin:14px 0 8px;}
+.questionnaire h4 {font-size:15px;line-height:1.5;margin:8px 0 12px;}
+.questionnaire h4 small {display:block;font-weight:400;}
+.questionnaire fieldset {border:0;margin:0;padding:0;min-width:0;}
+.question-option {display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border,#ddd);border-radius:10px;margin:8px 0;cursor:pointer;}
+.question-option:has(input:checked) {background:#f3f3f3;border-color:#777;}
+.question-option input {flex:none;margin-top:4px;}
+.question-option span {min-width:0;line-height:1.5;}
+.question-option small {display:block;}
+.question-text {display:block;font-size:13px;margin:12px 0;}
+.question-text textarea {display:block;width:100%;min-height:90px;resize:vertical;margin-top:8px;border:1px solid #aaa;border-radius:10px;padding:10px;}
+.interaction-actions,.question-pagination {display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.interaction-actions {justify-content:space-between;margin-top:16px;}
+.interaction-actions button {min-height:36px;}
+.questionnaire dt {font-size:13px;color:#666;margin-top:12px;}
+.questionnaire dd {margin:4px 0;white-space:pre-wrap;}
+.questionnaire [role=alert] {color:#a32d25;}

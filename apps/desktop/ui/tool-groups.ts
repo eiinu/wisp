@@ -16,7 +16,7 @@ export function groupExecution(input: RunEvent[]) {
     } else if (event.type === 'tool_requested') {
       const id = String(event.data.id); if (calls.has(id)) continue;
       const group = round(step ?? current); calls.set(id,group); group.events.push(event);
-    } else if (['tool_started','tool_result','approval_requested','approval_resolved'].includes(event.type)) {
+    } else if (['tool_started','tool_result','approval_requested','approval_resolved','question_requested','question_resolved'].includes(event.type)) {
       const group = calls.get(String(event.data.callId ?? event.data.id));
       if (group) group.events.push(event);
     }

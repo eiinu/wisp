@@ -1,3 +1,4 @@
+import {questionnaireSchema,validateQuestionResponse} from '@wisp/core';
 /** Development-only fixture for the real App, imported exclusively by qa.html. */
 import React, { useState } from 'react';
 import type { PreviewTabMetadata, Notice, Request, Result, RunEvent, Snapshot, WorkbenchBridge } from '@wisp/core';
@@ -50,6 +51,16 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   // The final answer follows the tool rounds in the actual event sequence.
   const answerIndex=state.events.findIndex(e=>e.id==='answer-1');
   const [answer]=state.events.splice(answerIndex,1); state.events.splice(state.events.findIndex(e=>e.id==='done-1'),0,answer);
+  const questionForm=questionnaireSchema.parse({title:'安排下一步（仅 QA 内存问答）',questions:[
+    {id:'format',title:'你希望以什么形式查看结果？',type:'single',required:true,allowCustom:true,options:[{id:'summary',label:'简短摘要',description:'先看主要发现'},{id:'report',label:'详细报告',description:'保留依据与过程'}]},
+    {id:'topics',title:'需要包含哪些内容？',type:'multiple',required:true,allowCustom:true,options:[{id:'progress',label:'目前进展'},{id:'risks',label:'风险与限制'},{id:'next',label:'下一步安排'}]},
+    {id:'notes',title:'还有什么补充要求？',type:'text',required:false}
+  ]});
+  const questionTicket=crypto.randomUUID();let answering=false;
+  if(basic==='ask_user'){
+    state.events=state.events.filter(e=>e.runId!=='approval-fixture');
+    state.events.push(event('question-start','approval-fixture','started',{prompt:'先询问我的偏好，再整理方案（仅内存样例）'}),event('question-call','approval-fixture','tool_requested',{id:'qa-question',name:'ask_user',args:questionForm,step:0}),event('question-pending','approval-fixture','question_requested',{ticket:questionTicket,callId:'qa-question',step:0,questionnaire:questionForm}));
+  }
   const changed=()=>listeners.forEach(listener=>listener({type:'changed'}));
   if(basic==='read_webpage'){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
   let query:{ticket:string;sessionId:string;claimed:boolean;resolve(tabs:PreviewTabMetadata[]):void}|undefined;
@@ -91,6 +102,14 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     async request(input:Request):Promise<Result>{
       if(input.type==='preview.tabs.claim'){if(!query||query.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.claimed=true;return{};}
       if(input.type==='preview.tabs.complete'){if(!query?.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.resolve(input.tabs);return{};}
+      if(input.type==='run.answer'){
+        if(basic!=='ask_user'||answering||input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId||input.ticket!==questionTicket)throw new Error('没有匹配的待回答样例');
+        const response=validateQuestionResponse(questionForm,input.response);answering=true;
+        await new Promise(resolve=>setTimeout(resolve,approvalDelay));
+        if(state.sessions[0].activeRunId!==input.runId)throw new Error('样例任务已取消');
+        state.events.push(event(crypto.randomUUID(),input.runId,'question_resolved',{ticket:questionTicket,callId:'qa-question',step:0,response}),event(crypto.randomUUID(),input.runId,'tool_result',{callId:'qa-question',step:0,name:'ask_user',text:JSON.stringify(response)}),event(crypto.randomUUID(),input.runId,'assistant',{step:1,text:response.status==='cancelled'?'QA：已记录暂不回答，不会批准任何操作。':'QA：已收到结构化答案。这里仅模拟模型续答，不执行任何操作。'}),event(crypto.randomUUID(),input.runId,'completed',{}));
+        delete state.sessions[0].activeRunId;changed();return{};
+      }
       if(input.type==='snapshot')return{snapshot:structuredClone(state)};
       // Explicit UI-only MCP fixture: never spawns a process or stores env values.
       if(input.type==='mcp.save'){
@@ -126,7 +145,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         state.events.push(event(crypto.randomUUID(),input.runId,'cancelled',{reason:'样例已取消；未执行真实操作'})); delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='run.approve'){
-        if(basic==='read_webpage'||input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId||input.callId!==(setupActivation?'activation-fixture':'call-fixture')||approvalPending) throw new Error('没有匹配的待审批样例');
+        if(['read_webpage','ask_user'].includes(basic)||input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId||input.callId!==(setupActivation?'activation-fixture':'call-fixture')||approvalPending) throw new Error('没有匹配的待审批样例');
         approvalPending=true;
         await new Promise(resolve=>setTimeout(resolve,approvalDelay));
         if(!state.sessions[0].activeRunId) return{};
