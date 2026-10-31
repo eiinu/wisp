@@ -2,9 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { WorkbenchBridge, Request, Snapshot, RunEvent, FileEntry, FilePreview, ModelConfig, ModelInfo, Result } from '@wisp/core';
 import { webBridge } from './bridge.js';
+import { copyText } from './clipboard.js';
 import { Markdown } from './markdown.js';
 import './style.css';
-declare global { interface Window { wisp?: WorkbenchBridge & { chooseDirectory(): Promise<string | undefined>; openUrl(url: string): Promise<void> } } }
+declare global { interface Window { wisp?: WorkbenchBridge & { copyText(text: string): Promise<void>; chooseDirectory(): Promise<string | undefined>; openUrl(url: string): Promise<void> } } }
 const empty: Snapshot = { sessions: [], events: [], keyPresent: false, browserConnected: false };
 const labels: Record<string, string> = { model_activity: '思考中', model_usage: '模型用量', model_finish: '模型结束', model_error: '模型错误', started: '任务开始', assistant: '回复', assistant_delta: '生成中', tool_requested: '调用工具', tool_result: '工具结果', approval_requested: '等待批准', approval_resolved: '审批结果', completed: '已完成', cancelled: '已取消', failed: '执行失败' };
 function initialBridge() {
@@ -110,7 +111,7 @@ function App() {
             {!!run.filter(e => e.type === 'tool_requested').length && <details className="tool-trace"><summary>{active === runId ? '正在处理' : '执行过程'} · {run.filter(e => e.type === 'tool_requested').length} 次工具调用</summary>{run.filter(e => ['tool_requested', 'tool_result', 'approval_resolved'].includes(e.type)).map(e => <div className="trace-item" key={e.id}><strong>{labels[e.type]} {String(e.data.name ?? '')}</strong><pre>{JSON.stringify(e.data, null, 2)}</pre></div>)}</details>}
             {!terminal && pending.map(e => <div className="approval" key={e.id}><div className="approval-title">◈ 需要你的批准</div><p>{String(e.data.description)}</p><strong>{String(e.data.name)}</strong><pre>{JSON.stringify(e.data.args, null, 2)}</pre><small>仅批准这一次调用。拒绝后不会执行此操作。</small><div><button className="primary" disabled={!connected} onClick={() => void action(() => api({ type: 'run.approve', sessionId: selected!, runId, callId: String(e.data.id), allowed: true }))}>批准执行</button><button disabled={!connected} onClick={() => void action(() => api({ type: 'run.approve', sessionId: selected!, runId, callId: String(e.data.id), allowed: false }))}>拒绝</button></div></div>)}
             {terminal && terminal.type !== 'completed' && <div className={`run-notice ${terminal.type}`}><span>{labels[terminal.type]} · {String(terminal.data.reason ?? '')}</span>{runId === runs.at(-1) && <button disabled={!connected || !!active} onClick={() => void action(() => api({ type: 'run.retry', sessionId: selected!, }))}>重试</button>}</div>}
-            {terminal?.type === 'completed' && <div className="message-actions"><span>✓ 已完成</span><button onClick={() => void action(async () => { await navigator.clipboard.writeText(run.filter(e => e.type === 'assistant').map(e => String(e.data.text)).join('\n')); setCopied(runId); })}>{copied === runId ? '已复制' : '复制回复'}</button></div>}
+            {terminal?.type === 'completed' && <div className="message-actions"><span>✓ 已完成</span><button onClick={() => void action(async () => { await copyText(run.filter(e => e.type === 'assistant').map(e => String(e.data.text)).join('\n'), window.wisp); setCopied(runId); })}>{copied === runId ? '已复制' : '复制回复'}</button></div>}
             {!terminal && !steps.length && !pending.length && <span className="thinking">正在思考<span>•••</span></span>}
           </div></div></div>;
         })}<div ref={bottom}/></div>

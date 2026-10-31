@@ -5,10 +5,10 @@ const mocks = vi.hoisted(() => {
   const app = { whenReady: vi.fn(), getPath: vi.fn(() => '/tmp/wisp-startup-test'), on: vi.fn(), quit: vi.fn() };
   const host = { connected: true, on: vi.fn(), kill: vi.fn(), send: vi.fn() };
   const window = { webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), send: vi.fn() }, loadURL: vi.fn(), isDestroyed: vi.fn(() => false) };
-  return { app, host, window, fork: vi.fn(() => host), BrowserWindow: vi.fn(function () { return window; }), showErrorBox: vi.fn(),
+  return { handle: vi.fn(), writeText: vi.fn(), app, host, window, fork: vi.fn(() => host), BrowserWindow: vi.fn(function () { return window; }), showErrorBox: vi.fn(),
     deferReady() { app.whenReady.mockReturnValue(new Promise<void>(resolve => { ready = resolve; })); }, ready() { ready(); } };
 });
-vi.mock('electron', () => ({ app: mocks.app, BrowserWindow: mocks.BrowserWindow, ipcMain: { handle: vi.fn() },
+vi.mock('electron', () => ({ app: mocks.app, BrowserWindow: mocks.BrowserWindow, ipcMain: { handle: mocks.handle }, clipboard: { writeText: mocks.writeText },
   session: { defaultSession: { setPermissionRequestHandler: vi.fn() } },
   dialog: { showErrorBox: mocks.showErrorBox }, shell: {}, safeStorage: {} }));
 vi.mock('node:child_process', () => ({ fork: mocks.fork }));
@@ -54,4 +54,21 @@ it('notifies the renderer when Host becomes ready so an initial snapshot can rec
   const messageHandler = mocks.host.on.mock.calls.find(([event]) => event === 'message')?.[1];
   await messageHandler({type: 'host-ready'});
   expect(mocks.window.webContents.send).toHaveBeenCalledWith('wisp:notice', {type: 'changed'});
+});
+
+it('allows text copying only from the trusted main frame with a bounded string', async () => {
+  await import('../apps/desktop/src/main.js'); mocks.ready();
+  await vi.waitFor(() => expect(mocks.window.loadURL).toHaveBeenCalledOnce());
+  const handler = mocks.handle.mock.calls.find(([channel]) => channel === 'wisp:copy-text')![1];
+  const frame = { url: mocks.window.loadURL.mock.calls[0][0] };
+  Object.assign(mocks.window.webContents, { mainFrame: frame });
+  const event = { sender: mocks.window.webContents, senderFrame: frame };
+  handler(event, '回复 😀');
+  expect(mocks.writeText).toHaveBeenCalledExactlyOnceWith('回复 😀');
+  for (const input of [null, {}, 123, 'x'.repeat(2_000_001)]) expect(() => handler(event, input)).toThrow('Invalid clipboard text');
+  expect(() => handler({ ...event, sender: {} }, 'text')).toThrow('Untrusted sender');
+  expect(() => handler({ ...event, senderFrame: { ...frame } }, 'text')).toThrow('Untrusted sender');
+  frame.url = 'https://example.com';
+  expect(() => handler(event, 'text')).toThrow('Untrusted sender');
+  expect(mocks.writeText).toHaveBeenCalledTimes(1);
 });

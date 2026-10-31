@@ -1,5 +1,5 @@
 import { credentialVault } from './credential-vault.js';
-import { app, BrowserWindow, ipcMain, session, dialog, shell, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, session, dialog, shell, safeStorage, clipboard } from 'electron';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -25,6 +25,7 @@ async function startDesktop() {
       host.send({ id, request }, error => { if (error) { clearTimeout(timer); pending.delete(id); reject(new Error('Host 连接失败')); } });
     });
   });
+  ipcMain.handle('wisp:copy-text', (event, input: unknown) => { trusted(event); if (typeof input !== 'string' || input.length > 2_000_000) throw new Error('Invalid clipboard text'); clipboard.writeText(input); });
   ipcMain.handle('wisp:open-url', async (event, input: unknown) => { trusted(event); if (typeof input !== 'string' || input.length > 4096) throw new Error('Invalid URL'); const url = new URL(input); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('Only web URLs are allowed'); await shell.openExternal(url.href); });
   ipcMain.handle('wisp:choose-directory', async event => { trusted(event); const result = await dialog.showOpenDialog(window, { properties: ['openDirectory'] }); return result.canceled ? undefined : result.filePaths[0]; });
   host.on('message', async (message: any) => {
