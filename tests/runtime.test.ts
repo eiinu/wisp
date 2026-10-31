@@ -109,3 +109,15 @@ it('protects private data when its parent directory has a filesystem alias', asy
   await expect(files.read('private/state.json')).rejects.toThrow('私有');
   expect((await files.list()).some(entry => entry.name === 'private')).toBe(false);
 });
+
+it('previews UTF-8 txt and Markdown, empty files and BOM-tagged UTF-16 without silent decoding corruption', async () => {
+  const { work, directory } = await setup(); const files = await WorkspaceFiles.grant(work, directory);
+  await writeFile(join(work, 'plain.txt'), '# literal <b>text</b>\r\n中文');
+  expect(await files.read('plain.txt')).toMatchObject({ kind: 'text', text: '# literal <b>text</b>\r\n中文' });
+  await writeFile(join(work, 'note.MD'), '\ufeff# 标题'); expect(await files.read('note.MD')).toMatchObject({ kind: 'markdown', text: '# 标题' });
+  await writeFile(join(work, 'empty.txt'), ''); expect(await files.read('empty.txt')).toMatchObject({ kind: 'text', text: '', size: 0 });
+  await writeFile(join(work, 'utf16.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('中文', 'utf16le')]));
+  expect((await files.read('utf16.txt')).text).toBe('中文');
+  await writeFile(join(work, 'bad.txt'), Buffer.from([0xc3, 0x28])); await expect(files.read('bad.txt')).rejects.toThrow('无法解码');
+  await writeFile(join(work, 'binary.txt'), Buffer.from([0, 1, 2])); expect((await files.read('binary.txt')).kind).toBe('unsupported');
+});

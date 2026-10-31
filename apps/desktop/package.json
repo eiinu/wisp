@@ -14,5 +14,8 @@
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/main.js && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs && vite build",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
+  },
+  "devDependencies": {
+    "jsdom": "30.1.3"
   }
 }

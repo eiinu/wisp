@@ -16,3 +16,7 @@
 .markdown th,.markdown td{border:1px solid #ddd;padding:7px 10px;max-width:440px;vertical-align:top}.markdown th{background:#f7f7f7;text-align:left}
 .markdown hr{border:0;border-top:1px solid #ddd;margin:1.2em 0}.markdown-image{color:#888;font-size:.9em}
 .markdown-link-error{display:block;color:#a44731;font-size:12px}
+.file-status{padding:10px 14px;color:#777;font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.file-preview .plain-text{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,monospace}
+.file-list>button[aria-pressed=true]{background:#e9e9e9}.breadcrumb{display:flex;flex-wrap:wrap;align-items:center;gap:4px;overflow-wrap:anywhere}
+.inspector>.error{margin:10px 14px}.file-toolbar{flex-wrap:wrap}.file-preview .file-status{padding:0;margin:12px 0}

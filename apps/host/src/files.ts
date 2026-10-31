@@ -49,8 +49,12 @@ export class WorkspaceFiles {
       const ext = extname(path).toLowerCase();
       const mime = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' } as Record<string, string>)[ext];
       if (mime) return { path, size: data.length, kind: 'image', dataUrl: `data:${mime};base64,${data.toString('base64')}` };
-      if (data.includes(0)) return { path, size: data.length, kind: 'unsupported' };
-      return { path, size: data.length, kind: ext === '.md' ? 'markdown' : 'text', text: data.toString('utf8') };
+      let text: string;
+      const utf16 = data[0] === 0xff && data[1] === 0xfe ? 'utf-16le' : data[0] === 0xfe && data[1] === 0xff ? 'utf-16be' : undefined;
+      try { text = new TextDecoder(utf16 ?? 'utf-8', { fatal: true }).decode(data); }
+      catch { throw new Error('无法解码文本：请使用 UTF-8，或带 BOM 的 UTF-16 文件'); }
+      if (text.includes('\0')) return { path, size: data.length, kind: 'unsupported' };
+      return { path, size: data.length, kind: ['.md', '.markdown'].includes(ext) ? 'markdown' : 'text', text };
     } finally { await handle.close(); }
   }
   async write(path: string, content: string, signal: AbortSignal) {
