@@ -80,10 +80,11 @@ export class Agent {
           const freeze = (value: unknown): void => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } };
           freeze(call);
           await emit('tool_requested', { ...call, step });
-          let tool: Tool;
+          let tool: Tool, prepared: Awaited<ReturnType<NonNullable<Tool['prepare']>>> | undefined;
           try {
             tool = this.tools.get(call.name);
             await tool.validate?.(call.args);
+            prepared = await tool.prepare?.(call.args, signal);
             signal.throwIfAborted();
           } catch (error) {
             signal.throwIfAborted();
@@ -93,10 +94,10 @@ export class Agent {
             await emit('tool_result', { step, callId: call.id, name: call.name, text, isError: true });
             continue;
           }
-          const execute = tool.execute.bind(tool);
+          const execute = prepared ? (_args: Record<string, unknown>, signal: AbortSignal) => prepared!.execute(signal) : tool.execute.bind(tool);
           if (tool.requiresApproval) {
             const decision = new Promise<boolean>(resolve => { this.pending = { runId: id, callId: call.id, resolve }; });
-            await emit('approval_requested', { ...call, step, description: tool.description });
+            await emit('approval_requested', { ...call, step, description: prepared?.description ?? tool.description });
             let allowed: boolean;
             try { allowed = await abortable(decision, signal); } finally { this.pending = undefined; }
             await emit('approval_resolved', { step, callId: call.id, allowed });

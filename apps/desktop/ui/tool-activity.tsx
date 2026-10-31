@@ -2,7 +2,7 @@ import React from 'react';
 import { Markdown } from './markdown.js';
 import { groupExecution } from './tool-groups.js';
 import type { RunEvent } from '@wisp/core';
-const names: Record<string, string> = { open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
+const names: Record<string, string> = { files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
 /** Only presentation: preview still uses the current session's Host authorization. */
 export function ToolActivity({ events, ended, canPreview, previewUnavailableReason, openFile }: { events: RunEvent[]; ended: boolean; canPreview: boolean; previewUnavailableReason?: string; openFile(path: string): void }) {
   const {process} = groupExecution(events);
@@ -26,7 +26,7 @@ export function ToolActivity({ events, ended, canPreview, previewUnavailableReas
       <p>{name}</p><strong>调用参数</strong><pre>{JSON.stringify(args, null, 2)}</pre>
       {approval && <p>审批：{result?.data.denied ? '已拒绝' : round.events.some(e=>e.type==='approval_resolved'&&e.data.callId===id&&e.data.allowed) ? '已批准本次调用' : ended ? '已结束，不能继续批准' : '请在下方审批区确认'}</p>}
       {result && <><strong>{result.data.isError ? '错误' : '工具结果'}</strong><pre>{String(result.data.text ?? '')}</pre></>}
-      {result && !result.data.denied && !result.data.isError && ['files_read', 'files_write'].includes(name) && path && <span><button disabled={!canPreview} title={!canPreview ? previewUnavailableReason ?? '请先连接本机服务并授权此会话的工作目录' : undefined} onClick={() => openFile(path)}>预览文件</button>{!canPreview && <small className="file-status">{previewUnavailableReason ?? '请先连接本机服务并授权此会话的工作目录'}</small>}</span>}
+      {result && !result.data.denied && !result.data.isError && ['files_read', 'files_write', 'files_replace'].includes(name) && path && <span><button disabled={!canPreview} title={!canPreview ? previewUnavailableReason ?? '请先连接本机服务并授权此会话的工作目录' : undefined} onClick={() => openFile(path)}>预览文件</button>{!canPreview && <small className="file-status">{previewUnavailableReason ?? '请先连接本机服务并授权此会话的工作目录'}</small>}</span>}
     </details>;
   })}</section>)}
     </details></div>;

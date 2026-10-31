@@ -9,7 +9,7 @@ export type Message = { role: 'user' | 'assistant' | 'tool'; text: string; callI
 export type ModelReply = { text: string; calls?: { id: string; name: string; args: Record<string, unknown> }[] };
 export interface GenerationProvider { generate(messages: Message[], tools: ToolSpec[], signal: AbortSignal, onText?: (text: string) => void): Promise<ModelReply> }
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
-export interface Tool extends ToolSpec { requiresApproval: boolean; validate?(args: Record<string, unknown>): void | Promise<void>; execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string> }
+export interface Tool extends ToolSpec { requiresApproval: boolean; prepare?(args: Record<string, unknown>, signal: AbortSignal): Promise<{ description: string; execute(signal: AbortSignal): Promise<string> }>; validate?(args: Record<string, unknown>): void | Promise<void>; execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string> }
 export class Registry<T> {
   private entries = new Map<string, T>();
   register(name: string, item: T) { if (this.entries.has(name)) throw new Error(`Duplicate registration: ${name}`); this.entries.set(name, item); }
