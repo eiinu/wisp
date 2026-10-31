@@ -101,3 +101,28 @@ it('keeps archive selection in the current project even when another client sele
  await act(()=>c.emit({type:'changed'}));expect(container.querySelector('[aria-current=page]')).toBeNull();
  expect(container.querySelector('.composer-footnote')?.textContent).not.toContain('继承项目');
 });
+it('serializes settings saves and returns focus to the trigger after completion',async()=>{
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));const trigger=button('模型与设置');
+ await act(()=>trigger.click());const form=container.querySelector('form:has(select)')!;
+ let release!:(r:Result)=>void;c.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
+ await act(()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+ expect(c.request.mock.calls.filter(([r])=>r.type==='model.save')).toHaveLength(1);
+ expect(form.closest('fieldset')?.disabled).toBe(true);
+ await act(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true})));expect(document.activeElement).toBe(container.querySelector('[role=dialog]'));
+ await act(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})));expect(container.querySelector('[role=dialog]')).not.toBeNull();
+ await act(()=>release({}));expect(container.querySelector('[role=dialog]')).toBeNull();expect(document.activeElement).toBe(trigger);
+});
+it('sends only once for repeated synchronous submit and preserves a draft on failure',async()=>{
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));await inputText('do once');
+ let reject!:(e:Error)=>void;c.request.mockImplementationOnce(()=>new Promise((_,r)=>{reject=r;}));
+ const form=container.querySelector('.composer')!;
+ await act(()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
+ expect(c.request.mock.calls.filter(([r])=>r.type==='run.start')).toHaveLength(1);
+ await act(()=>reject(new Error('offline test error')));expect(container.querySelector<HTMLTextAreaElement>('[aria-label=消息]')?.value).toBe('do once');expect(container.querySelector('[role=alert]')?.textContent).toContain('offline test error');
+});
+it('grows multiline composer content without stealing focus and caps its height',async()=>{
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));const input=container.querySelector<HTMLTextAreaElement>('[aria-label=消息]')!;
+ Object.defineProperty(input,'scrollHeight',{value:500,configurable:true});const trigger=button('会话 two');trigger.focus();await inputText('many\nlines');
+ expect(input.style.height).toBe('220px');expect(document.activeElement).toBe(trigger);
+ Object.defineProperty(input,'scrollHeight',{value:20,configurable:true});await inputText('short');expect(input.style.height).toBe('58px');
+});
