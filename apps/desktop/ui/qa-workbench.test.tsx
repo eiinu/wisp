@@ -37,3 +37,15 @@ it('routes memory questionnaire independently of approvals, rejects duplicates a
  const sending=bridge.request(request);await expect(bridge.request(request)).rejects.toThrow('待回答');await bridge.request({type:'session.select',sessionId:'empty-fixture'});await sending;
  const events=(await bridge.request({type:'snapshot'})).snapshot!.events;expect(events.filter(e=>e.type==='question_resolved')).toHaveLength(1);expect(events.find(e=>e.type==='question_resolved')?.sessionId).toBe('conversation-fixture');expect(events.some(e=>e.type==='approval_resolved')).toBe(false);
 });
+it('tab action fixture uses same-session live tickets, explicit approval and memory-only refresh',async()=>{
+ const bridge=fixture(1,false,'preview_tab_action');let ticket='';
+ bridge.subscribe(n=>{if(n.type==='preview.tabs')void(async()=>{await bridge.request({type:'preview.tabs.claim',sessionId:n.sessionId,ticket:n.ticket});await bridge.request({type:'preview.tabs.complete',sessionId:n.sessionId,ticket:n.ticket,tabs:[{id:'memory-file',kind:'file',title:'Notes',path:'notes.txt',active:false,revision:1}]});})();if(n.type==='preview.action')ticket=n.ticket;});
+ const tabs=await bridge.inspectTabs();await bridge.beginAction(tabs[0].tabId,'reload');let snapshot=(await bridge.request({type:'snapshot'})).snapshot!,runId=snapshot.sessions[0].activeRunId!;
+ expect(ticket).toBe('');await bridge.request({type:'run.approve',sessionId:'conversation-fixture',runId,callId:'qa-tab-action',allowed:false});expect(ticket).toBe('');
+ await bridge.beginAction(tabs[0].tabId,'reload');snapshot=(await bridge.request({type:'snapshot'})).snapshot!;runId=snapshot.sessions[0].activeRunId!;
+ await bridge.request({type:'run.approve',sessionId:'conversation-fixture',runId,callId:'qa-tab-action',allowed:true});
+ expect((await bridge.request({type:'preview.action.claim',sessionId:'conversation-fixture',ticket})).tabAction?.tab.id).toBe('memory-file');
+ const result=await bridge.request({type:'preview.action.execute',sessionId:'conversation-fixture',ticket});expect(result.file?.text).toContain('QA：已重新读取内存内容');
+ await expect(bridge.request({type:'preview.action.execute',sessionId:'conversation-fixture',ticket})).rejects.toThrow('重复');await bridge.request({type:'preview.action.complete',sessionId:'conversation-fixture',ticket,applied:true});
+ expect((await bridge.request({type:'snapshot'})).snapshot?.sessions[0].activeRunId).toBeUndefined();
+});

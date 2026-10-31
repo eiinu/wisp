@@ -1,11 +1,11 @@
 import {questionnaireSchema,validateQuestionResponse} from '@wisp/core';
 /** Development-only fixture for the real App, imported exclusively by qa.html. */
 import React, { useState } from 'react';
-import type { PreviewTabMetadata, Notice, Request, Result, RunEvent, Snapshot, WorkbenchBridge } from '@wisp/core';
+import type { PreviewTabAction, PreviewTabMetadata, Notice, Request, Result, RunEvent, Snapshot, WorkbenchBridge } from '@wisp/core';
 import { safeWebUrl } from './preview-model.js';
 import { App } from './app.js';
 
-export function fixture(approvalDelay = 1800, web = false, basic = ''): WorkbenchBridge & {inspectTabs():Promise<{tabId:string;title:string;kind:string}[]>;beginRead(tabId:string):Promise<void>} {
+export function fixture(approvalDelay = 1800, web = false, basic = ''): WorkbenchBridge & {inspectTabs():Promise<{tabId:string;title:string;kind:string}[]>;beginRead(tabId:string):Promise<void>;beginAction(tabId:string,action:PreviewTabAction):Promise<void>} {
   const files = new Map([['notes.txt', '补充笔记：仅 QA 内存数据'], ['README.md', '# 内存文件预览样例\n\n仅供 QA；没有读取磁盘或授予真实文件权限。']]);
   let approvalPending = false, previewClaimed=false, setupActivation=false;
   let previewResolve: ((accepted:boolean)=>void)|undefined;
@@ -62,7 +62,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     state.events.push(event('question-start','approval-fixture','started',{prompt:'先询问我的偏好，再整理方案（仅内存样例）'}),event('question-call','approval-fixture','tool_requested',{id:'qa-question',name:'ask_user',args:questionForm,step:0}),event('question-pending','approval-fixture','question_requested',{ticket:questionTicket,callId:'qa-question',step:0,questionnaire:questionForm}));
   }
   const changed=()=>listeners.forEach(listener=>listener({type:'changed'}));
-  if(basic==='read_webpage'){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
+  if(['read_webpage','preview_tab_action'].includes(basic)){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
   let query:{ticket:string;sessionId:string;claimed:boolean;resolve(tabs:PreviewTabMetadata[]):void}|undefined;
   const identifiers=new Map<string,string>();let listedSession:string|undefined;let listed:({tabId:string}&PreviewTabMetadata)[]=[];
   const queryTabs=(sessionId=state.selectedId!)=>new Promise<PreviewTabMetadata[]>((resolve,reject)=>{
@@ -73,6 +73,8 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     listeners.forEach(listener=>listener({type:'preview.tabs',sessionId,ticket:id}));
   });
 
+  let tabAction:{sessionId:string;runId:string;ticket:string;tab:PreviewTabMetadata;action:PreviewTabAction;claimed:boolean;executed:boolean;approved:boolean}|undefined;
+  const endAction=(text:string,isError=false)=>{const p=tabAction;if(!p)return;state.events.push(event(crypto.randomUUID(),p.runId,'tool_result',{callId:'qa-tab-action',text,isError},p.sessionId),event(crypto.randomUUID(),p.runId,'completed',{},p.sessionId));const session=state.sessions.find(s=>s.id===p.sessionId);if(session)delete session.activeRunId;tabAction=undefined;changed();};
   return {
     async inspectTabs(){
       const sessionId=state.selectedId!;const rows=await queryTabs(sessionId);
@@ -81,6 +83,13 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
       listedSession=sessionId;listed=rows.map(tab=>{const key=JSON.stringify([sessionId,tab.id]);const id=identifiers.get(key)??crypto.randomUUID();identifiers.set(key,id);return {...tab,tabId:id};});
       const run=crypto.randomUUID();state.events.push(listEvent(crypto.randomUUID(),run,'started',{prompt:'QA：列出此会话实际打开的预览标签（仅内存）'}),listEvent(crypto.randomUUID(),run,'tool_requested',{id:'qa-list',name:'list_preview_tabs',args:{}}),listEvent(crypto.randomUUID(),run,'tool_result',{callId:'qa-list',text:JSON.stringify({tabs:listed.map(({id,revision,url,...tab})=>{const safe=url&&safeWebUrl(url);if(safe){const value=new URL(safe);value.search='';value.hash='';return {...tab,url:value.href};}return tab;}),message:'仅 QA 内存标签元数据；没有读取真实网页'})}),listEvent(crypto.randomUUID(),run,'completed',{}));changed();
       return listed.map(({tabId,title,kind})=>({tabId,title,kind}));
+    },
+    async beginAction(tabId,action){
+      if(listedSession!==state.selectedId)throw new Error('先获取此会话列表');
+      const tab=listed.find(t=>t.tabId===tabId),session=state.sessions.find(s=>s.id===state.selectedId)!;
+      if(!tab||session.activeRunId)throw new Error('标签不存在或任务尚未完成');
+      const runId=crypto.randomUUID();tabAction={sessionId:session.id,runId,ticket:crypto.randomUUID(),tab:{...tab},action,claimed:false,executed:false,approved:false};session.activeRunId=runId;
+      const args={tabId,action};state.events.push(event(crypto.randomUUID(),runId,'started',{prompt:'QA：指定标签操作（内存模拟）'},session.id),event(crypto.randomUUID(),runId,'tool_requested',{id:'qa-tab-action',name:'preview_tab_action',args},session.id),event(crypto.randomUUID(),runId,'approval_requested',{id:'qa-tab-action',name:'preview_tab_action',args,description:`${action} · ${tab.title} (${tab.kind})。仅内存 UI 样例；网页导航不执行，不代表 Electron 已加载；文件刷新使用内存内容。`},session.id));changed();
     },
     async beginRead(tabId){
       if(listedSession!==state.selectedId)throw new Error('先获取此会话的标签列表');
@@ -100,6 +109,27 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     async request(input:Request):Promise<Result>{
+      if(input.type==='run.cancel'&&tabAction?.runId===input.runId){const p=tabAction;listeners.forEach(l=>l({type:'preview.action.cancel',sessionId:p.sessionId,ticket:p.ticket}));endAction('QA 已取消',true);return{};}
+      if(input.type==='run.approve'&&input.callId==='qa-tab-action'){
+        const p=tabAction;if(!p||p.approved||input.sessionId!==p.sessionId||input.runId!==p.runId)throw new Error('样例审批已失效');p.approved=true;
+        await new Promise(r=>setTimeout(r,approvalDelay));if(tabAction!==p)return{};
+        state.events.push(event(crypto.randomUUID(),p.runId,'approval_resolved',{callId:'qa-tab-action',allowed:input.allowed},p.sessionId));
+        if(!input.allowed){endAction('QA 已拒绝；没有操作标签');return{};}
+        state.events.push(event(crypto.randomUUID(),p.runId,'tool_started',{callId:'qa-tab-action',name:'preview_tab_action'},p.sessionId));changed();
+        listeners.forEach(l=>l({type:'preview.action',sessionId:p.sessionId,ticket:p.ticket}));return{};
+      }
+      if(input.type==='preview.action.claim'||input.type==='preview.action.execute'||input.type==='preview.action.complete'){
+        const p=tabAction;if(!p||!p.approved||p.ticket!==input.ticket||p.sessionId!==input.sessionId||state.selectedId!==p.sessionId)throw new Error('样例票据已失效');
+        if(input.type==='preview.action.claim'){if(p.claimed)throw new Error('已领取');p.claimed=true;return{tabAction:{tab:p.tab,action:p.action}};}
+        if(input.type==='preview.action.complete'){endAction(input.applied?'QA：标签操作已确认，仅内存模拟':'QA：标签已变化或存在未保存编辑，未确认操作',!input.applied);return{};}
+        if(!p.claimed||p.executed)throw new Error('重复执行');p.executed=true;
+        const now=(await queryTabs()).find(t=>t.id===p.tab.id);if(tabAction!==p||!now||now.url!==p.tab.url||now.path!==p.tab.path||now.revision!==p.tab.revision){endAction('QA：标签已变化，请重新获取列表',true);throw new Error('标签已变化');}
+        if(p.action==='close')return{actionStatus:'closed'};
+        if(p.tab.kind==='new'||p.tab.kind!=='web'&&p.action!=='reload'){endAction('此标签不支持此动作',true);throw new Error('不支持的动作');}
+        if(p.tab.kind==='web'){endAction('Web QA 没有原生历史或刷新能力；此处不假装导航成功',true);throw new Error('请在 Electron 验证网页导航');}
+        if(p.tab.kind==='file'){const text=files.get(p.tab.path!);if(text===undefined)throw new Error('内存文件不存在');return{actionStatus:'refreshed',file:{path:p.tab.path!,kind:p.tab.path!.endsWith('.md')?'markdown':'text',text:text+'\n\nQA：已重新读取内存内容',size:text.length}};}
+        return{actionStatus:'refreshed',entries:[...files].map(([path,text])=>({path,name:path,kind:'file',size:text.length}))};
+      }
       if(input.type==='preview.tabs.claim'){if(!query||query.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.claimed=true;return{};}
       if(input.type==='preview.tabs.complete'){if(!query?.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.resolve(input.tabs);return{};}
       if(input.type==='run.answer'){
@@ -182,7 +212,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   };
 }
 export function QAWorkbench({web=false,basic=''}:{web?:boolean;basic?:string}){
- const[bridge]=useState(()=>fixture(1800,web,basic)),[tabs,setTabs]=useState<{tabId:string;title:string;kind:string}[]>([]),[chosen,choose]=useState(''),[message,setMessage]=useState(''),[pending,setPending]=useState(false);
+ const[bridge]=useState(()=>fixture(1800,web,basic)),[tabs,setTabs]=useState<{tabId:string;title:string;kind:string}[]>([]),[chosen,choose]=useState(''),[message,setMessage]=useState(''),[pending,setPending]=useState(false),[tabAction,setTabAction]=useState<PreviewTabAction>('reload');
  const perform=async(task:()=>Promise<void>)=>{if(pending)return;setPending(true);setMessage('');try{await task();}catch(e){setMessage(String(e));}finally{setPending(false);}};
- return <div className="qa-tool-workbench">{basic==='read_webpage'&&<div className="qa-banner"><p>两步网页工具 · 内存测试：先在右侧打开网页/文件/新标签，再获取实时列表。正文直接读取无需审批，只返回静态样例，不提取 iframe。</p><button disabled={pending} onClick={()=>void perform(async()=>{const result=await bridge.inspectTabs();setTabs(result);choose(result.find(t=>t.kind==='web')?.tabId??'');})}>获取当前标签列表（内存测试）</button><select aria-label="指定列表中的网页" value={chosen} onChange={e=>choose(e.target.value)}><option value="">选择网页标签</option>{tabs.filter(t=>t.kind==='web').map(t=><option key={t.tabId} value={t.tabId}>{t.title} · {t.tabId.slice(0,8)}</option>)}</select><button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginRead(chosen))}>请求读取指定网页（模拟正文）</button><span role="status">{message||`列表共 ${tabs.length} 个标签`}</span></div>}<App initialClient={bridge}/></div>;
+ return <div className="qa-tool-workbench">{['read_webpage','preview_tab_action'].includes(basic)&&<div className="qa-banner"><p>两步网页工具 · 内存测试：先在右侧打开网页/文件/新标签，再获取实时列表。正文直接读取无需审批，只返回静态样例，不提取 iframe。</p><button disabled={pending} onClick={()=>void perform(async()=>{const result=await bridge.inspectTabs();setTabs(result);choose(result.find(t=>t.kind==='web')?.tabId??'');})}>获取当前标签列表（内存测试）</button><select aria-label={basic==='preview_tab_action'?'指定列表中的标签':'指定列表中的网页'} value={chosen} onChange={e=>choose(e.target.value)}><option value="">选择网页标签</option>{tabs.filter(t=>basic==='preview_tab_action'||t.kind==='web').map(t=><option key={t.tabId} value={t.tabId}>{t.title} · {t.tabId.slice(0,8)}</option>)}</select>{basic==='preview_tab_action'?<><p>标签动作内存样例：刷新文件/目录或关闭任意标签。网页导航明确不支持，须在 Electron 验证。</p><select aria-label="标签动作" value={tabAction} onChange={e=>setTabAction(e.target.value as PreviewTabAction)}>{(['reload','back','forward','close'] as const).map(a=><option key={a}>{a}</option>)}</select><button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginAction(chosen,tabAction))}>请求标签操作（内存审批）</button></>:<button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginRead(chosen))}>请求读取指定网页（模拟正文）</button>}<span role="status">{message||`列表共 ${tabs.length} 个标签`}</span></div>}<App initialClient={bridge}/></div>;
 }
