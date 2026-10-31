@@ -28,6 +28,7 @@ function fixture(): WorkbenchBridge {
       if(input.type==='run.approve'||input.type==='run.cancel'){
         state.events.push(event(crypto.randomUUID(),'approval-fixture',input.type==='run.cancel'?'cancelled':'completed',{text:'样例状态更新；没有执行任务'}));delete state.sessions[0].activeRunId;changed();return{};
       }
+      if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
       if(input.type==='model.save'){state.config={...input.config};changed();return{};}
       throw new Error('此工作台为开发样例：不连接 Host、模型或真实文件，请返回组件样例检查项目与文件交互。');
     },

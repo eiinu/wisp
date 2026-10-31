@@ -14,3 +14,8 @@ it('resolves shared design values and preserves keyboard, touch and narrow-layou
  expect(styles).toContain('@media(prefers-reduced-motion:reduce)');
  expect(styles).toContain('.messages{scroll-behavior:auto}');
 });
+it('keeps settings content bounded with responsive navigation and a single inset text focus edge',()=>{
+ const css=readFileSync('apps/desktop/ui/settings-page.css','utf8'),tokens=readFileSync('apps/desktop/ui/tokens.css','utf8');
+ const defined=new Set([...tokens.matchAll(/(--[a-z-]+)\s*:/g)].map(m=>m[1]));for(const match of css.matchAll(/var\((--[a-z-]+)\)/g))expect(defined.has(match[1])).toBe(true);
+ expect(css).toContain('grid-template-columns:240px minmax(0,1fr)');expect(css).toContain('max-width:840px');expect(css).toContain('@media(max-width:480px)');expect(css).toContain(':focus{border-color:var(--focus-border)}');expect(css).toContain('forced-colors:active');
+});

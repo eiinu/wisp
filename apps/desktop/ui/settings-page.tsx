@@ -1,0 +1,88 @@
+import React, { useEffect, useRef, useState } from 'react';
+import type { ModelConfig, ModelInfo, Request, Result, Snapshot } from '@wisp/core';
+import { WorkspaceIcon } from './workspace-icon.js';
+import './settings-page.css';
+
+const defaults: ModelConfig = { provider: 'deepseek', model: 'deepseek-flash', baseUrl: 'https://api.deepseek.com' };
+export function SettingsPage({ initialSection = 'model', snapshot, connected, sessionId, request, onBack, onConnect, onRetry }: {
+  initialSection?: 'model'|'connection'; snapshot: Snapshot; connected: boolean; sessionId?: string;
+  request(input: Request): Promise<Result>; onBack(): void; onConnect(token: string): Promise<void>; onRetry(): void;
+}) {
+  const [section, setSection] = useState<'model'|'connection'>(initialSection);
+  const [config, setConfig] = useState<ModelConfig>(() => ({ ...snapshot.config ?? defaults }));
+  const [apiKey, setApiKey] = useState(''), [remember, setRemember] = useState(true), [token, setToken] = useState('');
+  const [models, setModels] = useState<ModelInfo[]>([]), [pending, setPending] = useState(false);
+  const [error, setError] = useState(''), [status, setStatus] = useState(''), [confirmLeave, setConfirmLeave] = useState(false);
+  const saved = useRef({ config: { ...snapshot.config ?? defaults }, remember: true });
+  const lock = useRef(false), page = useRef<HTMLElement>(null), confirm = useRef<HTMLElement>(null);
+  const dirty = JSON.stringify(config) !== JSON.stringify(saved.current.config) || remember !== saved.current.remember || !!apiKey || !!token;
+  const running = snapshot.sessions.some(session => !!session.activeRunId);
+  const simulator = snapshot.config?.model === 'wisp-dev-simulator';
+  const editable = connected && !running && !simulator;
+  const official = config.provider === 'deepseek' && /^https:\/\/api\.deepseek\.com(?:\/v1)?\/?$/.test(config.baseUrl);
+  const task = async (work: () => Promise<void>) => {
+    if (lock.current) return; lock.current = true; setPending(true); setError(''); setStatus('');
+    try { await work(); } catch (e) { setStatus(''); setError(e instanceof Error ? e.message : String(e)); }
+    finally { lock.current = false; setPending(false); }
+  };
+  const save = async () => {
+    if (!editable) throw new Error(running ? '请等待所有任务结束后修改模型配置' : '当前无法修改模型配置');
+    try {
+      await request({ type: 'model.save', config, rememberKey: remember && official && snapshot.credential?.storage === 'secure', ...(apiKey ? { apiKey } : {}) });
+      saved.current = { config: { ...config }, remember }; setStatus('设置已保存');
+    } finally { setApiKey(''); }
+  };
+  const back = () => { if (lock.current) return; if (dirty) setConfirmLeave(true); else onBack(); };
+  useEffect(() => { page.current?.focus(); }, []);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (!lock.current) { if (confirmLeave) setConfirmLeave(false); else back(); } }
+    };
+    document.addEventListener('keydown', key, true); return () => document.removeEventListener('keydown', key, true);
+  }, [dirty, confirmLeave, onBack]);
+  useEffect(() => {
+    if (!confirmLeave) return;
+    const previous = document.activeElement as HTMLElement;
+    confirm.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const targets = Array.from(confirm.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []), first = targets[0], last = targets.at(-1);
+      if (!first) { e.preventDefault(); confirm.current?.focus(); }
+      else if (e.shiftKey && (document.activeElement === first || !confirm.current?.contains(document.activeElement))) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !confirm.current?.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', trap); return () => { document.removeEventListener('keydown', trap); if (previous.isConnected) previous.focus(); };
+  }, [confirmLeave]);
+  const browser = snapshot.browserSessions?.[sessionId ?? ''];
+  return <main className="settings-page" ref={page} tabIndex={-1} aria-label="设置页面">
+    <aside className="settings-navigation" inert={confirmLeave}>
+      <button className="settings-back" onClick={back} disabled={pending}><WorkspaceIcon name="back"/>返回工作台</button><h1>设置</h1>
+      <nav aria-label="设置分类"><button aria-current={section === 'model' ? 'page' : undefined} onClick={() => setSection('model')}><WorkspaceIcon name="model"/>模型</button><button aria-current={section === 'connection' ? 'page' : undefined} onClick={() => setSection('connection')}><WorkspaceIcon name="workspace"/>本机连接</button></nav>
+    </aside>
+    <div className="settings-scroll" inert={confirmLeave}><div className="settings-content">
+      <header><h2>{section === 'model' ? '模型' : '本机连接'}</h2><p>{section === 'model' ? '管理模型与 API 凭据。由本机直接访问你配置的服务。' : '查看工作台与本机服务的连接状态。'}</p></header>
+      {pending && <p role="status">正在处理，请稍候…</p>}{status && <p role="status">{status}</p>}{error && <p className="error" role="alert">{error}</p>}
+      <section hidden={section !== 'model'}>
+        {!connected && <p className="settings-note">本机服务未连接，连接后可保存设置。</p>}{running && <p className="settings-note">有任务正在运行，结束后即可修改配置。</p>}{simulator && <p className="settings-note">开发模拟使用固定假凭据，不接受真实 Key。退出模拟后运行普通工作台才能配置。</p>}
+        <form onSubmit={e => { e.preventDefault(); if (editable) void task(save); }}>
+          <fieldset disabled={pending || !editable} aria-busy={pending}>
+            <h3>服务</h3><div className="settings-group">
+              <label className="settings-row"><span>提供商<small>切换提供商需要分别配置凭据</small></span><select value={config.provider} onChange={e => { const provider = e.target.value as ModelConfig['provider']; setConfig({ provider, model: provider === 'deepseek' ? 'deepseek-flash' : provider === 'offline' ? 'offline-test' : '', baseUrl: provider === 'deepseek' ? 'https://api.deepseek.com' : provider === 'offline' ? '' : 'https://api.openai.com/v1' }); setApiKey(''); setModels([]); setStatus(''); }}><option value="deepseek">DeepSeek</option><option value="openai-compatible">OpenAI 兼容接口</option><option value="offline">离线验证（开发诊断）</option></select></label>
+              {config.provider !== 'offline' && <><label className="settings-row"><span>模型名称<small>填写服务支持的模型 ID</small></span><input list="settings-model-options" required value={config.model} onChange={e => setConfig({ ...config, model: e.target.value })}/><datalist id="settings-model-options">{models.map(model => <option key={model.id} value={model.id}>{model.name ?? model.id}</option>)}</datalist></label><label className="settings-row"><span>API 地址<small>修改地址不会转发已保存的 Key</small></span><input type="url" required value={config.baseUrl} onChange={e => setConfig({ ...config, baseUrl: e.target.value })}/></label></>}
+            </div>
+            {config.provider !== 'offline' ? <><h3>凭据</h3><div className="settings-group"><label className="settings-row"><span>API Key<small>{snapshot.keyPresent ? snapshot.credential?.saved ? '已安全保存 · 留空保留' : '当前会话已配置 · 留空保留' : '尚未配置'}</small></span><input type="password" autoComplete="off" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="输入新 Key，不回显已保存内容"/></label>{snapshot.credential?.storage === 'secure' && config.provider === 'deepseek' && <label className="settings-row"><span>保存新 Key<small>{official ? '使用系统安全存储，重启后可用' : '仅官方 API 支持；当前地址仅会话保存'}</small></span><input type="checkbox" checked={remember && official} disabled={!official} onChange={e => setRemember(e.target.checked)}/></label>}{(snapshot.keyPresent || snapshot.credential?.saved || snapshot.credential?.error) && <div className="settings-row"><span>删除凭据<small>清除本地保存与内存中的 Key</small></span><button type="button" onClick={() => void task(async () => { await request({type:'model.clearKey'}); setApiKey(''); setStatus('Key 已删除'); })}>删除 Key</button></div>}</div>
+            {snapshot.credential?.error && <p className="error">{snapshot.credential.error}</p>}<p className="settings-note">{snapshot.credential?.storage === 'secure' ? '新 Key 仅在勾选保存且使用官方 API 时持久保存，否则仅当前进程使用。留空保留已有 Key；如需移除已保存凭据，请使用删除 Key。' : '此 Web/会话环境不提供系统钥匙串，Key 仅在本次进程内使用，重启需重新输入。'}</p>
+            {config.provider === 'deepseek' && <><h3>思考</h3><div className="settings-group"><label className="settings-row"><span>思考模式</span><select value={config.thinking ?? 'enabled'} onChange={e => setConfig({...config,thinking:e.target.value as 'enabled'|'disabled'})}><option value="enabled">开启</option><option value="disabled">关闭</option></select></label>{config.thinking !== 'disabled' && <label className="settings-row"><span>思考强度</span><select value={config.effort ?? 'high'} onChange={e => setConfig({...config,effort:e.target.value as 'low'|'high'|'max'})}>{(models.find(model=>model.id===config.model)?.effort?.supportedLevels ?? ['low','high','max']).map(level=><option key={level} value={level}>{level}</option>)}</select></label>}</div></>}
+            <p className="settings-note">保存不会发起生成请求。发送任务时，消息及工具读取结果会传给配置的 API。</p></> : <p className="settings-note">开发诊断，不生成模型答案。支持“列出文件”“读取 文件名”“写入 文件名 + 换行 + 内容”；执行的是真实本地工具，写入仍需批准。</p>}
+            <div className="settings-actions">{config.provider !== 'offline' && <button type="button" onClick={e => { if (!e.currentTarget.form?.reportValidity()) return; void task(async () => { await save(); setStatus('正在查询可用模型…'); const result = await request({type:'model.list'}); setModels(result.models ?? []); setStatus(`设置已保存，找到 ${result.models?.length ?? 0} 个模型`); }); }}>保存并查询模型</button>}<button className="primary" type="submit">保存设置</button></div>
+          </fieldset>
+          <button type="button" className="settings-cancel" disabled={pending} onClick={back}>取消并返回</button>
+        </form>
+      </section>
+      <section hidden={section !== 'connection'}><h3>工作台</h3><div className="settings-group"><div className="settings-row"><span>本机服务<small>任务与文件访问在你的电脑上执行</small></span><strong>{connected ? '已连接' : '未连接'}</strong></div><div className="settings-row"><span>浏览器自动化<small>{browser?.message ?? '与手动浏览网页独立，需要本机配置'}</small></span><strong>{browser?.state === 'connected' ? '已连接' : '未连接'}</strong></div></div>
+        {!connected && (window.wisp ? <button className="settings-reconnect" disabled={pending} onClick={onRetry}>重新连接</button> : <form className="settings-connect" onSubmit={e => {e.preventDefault();void task(async()=>{await onConnect(token);setToken('');setStatus('本机服务已连接');});}}><p className="settings-note">在本机运行 pnpm web 后使用终端给出的链接。托管预览不能连接你电脑的 localhost；令牌仅存在内存。</p><label>同源 Host 连接令牌<input type="password" autoComplete="off" required value={token} onChange={e=>setToken(e.target.value)}/></label><button disabled={pending} className="primary">连接</button></form>)}
+      </section>
+    </div></div>
+    {confirmLeave && <div className="modal-backdrop"><section ref={confirm} tabIndex={-1} className="modal" role="alertdialog" aria-modal="true" aria-labelledby="settings-unsaved-title"><div className="modal-heading"><h2 id="settings-unsaved-title">有尚未保存的更改</h2></div><div className="modal-body"><p>离开会放弃未保存的配置与输入的凭据。</p><div className="modal-actions"><button disabled={pending} onClick={()=>setConfirmLeave(false)}>继续编辑</button><button disabled={pending} onClick={onBack}>放弃更改并返回</button></div></div></section></div>}
+  </main>;
+}

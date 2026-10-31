@@ -35,11 +35,11 @@ it('does not submit Enter when the model is unconfigured', async () => {
   expect(c.request.mock.calls.some(([r]) => r.type === 'run.start')).toBe(false);
 });
 it('traps modal focus, ignores new-session shortcut while configuring, and closes with Escape', async () => {
-  const c = client(); await act(() => root.render(<App initialClient={c.bridge}/>)); await click('模型与设置');
+  const c = client(); await act(() => root.render(<App initialClient={c.bridge}/>)); await click('授权工作目录');
   const dialog = container.querySelector('[role=dialog]')!;
   expect(dialog.contains(document.activeElement)).toBe(true);
   await act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
-  expect(document.activeElement?.textContent).toBe('保存设置');
+  expect(document.activeElement?.textContent).toBe('确认授权此目录');
   await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true })));
   expect(c.request.mock.calls.some(([r]) => r.type === 'session.create')).toBe(false);
   await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
@@ -102,15 +102,15 @@ it('keeps archive selection in the current project even when another client sele
  expect(container.querySelector('.composer-footnote')?.textContent).not.toContain('继承项目');
 });
 it('serializes settings saves and returns focus to the trigger after completion',async()=>{
- const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));const trigger=button('模型与设置');
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));const trigger=button('设置');
  await act(()=>trigger.click());const form=container.querySelector('form:has(select)')!;
  let release!:(r:Result)=>void;c.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
  await act(()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
  expect(c.request.mock.calls.filter(([r])=>r.type==='model.save')).toHaveLength(1);
- expect(form.closest('fieldset')?.disabled).toBe(true);
- await act(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true})));expect(document.activeElement).toBe(container.querySelector('[role=dialog]'));
- await act(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})));expect(container.querySelector('[role=dialog]')).not.toBeNull();
- await act(()=>release({}));expect(container.querySelector('[role=dialog]')).toBeNull();expect(document.activeElement).toBe(trigger);
+ expect(form.querySelector('fieldset')?.disabled).toBe(true);
+ await act(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})));expect(container.querySelector('.settings-page')).not.toBeNull();
+ await act(()=>release({}));expect(container.querySelector('.settings-content [role=status]')?.textContent).toBe('设置已保存');
+ await click('返回工作台');expect(container.querySelector('.settings-page')).toBeNull();expect(document.activeElement).toBe(trigger);
 });
 it('sends only once for repeated synchronous submit and preserves a draft on failure',async()=>{
  const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));await inputText('do once');
@@ -125,4 +125,76 @@ it('grows multiline composer content without stealing focus and caps its height'
  Object.defineProperty(input,'scrollHeight',{value:500,configurable:true});const trigger=button('会话 two');trigger.focus();await inputText('many\nlines');
  expect(input.style.height).toBe('220px');expect(document.activeElement).toBe(trigger);
  Object.defineProperty(input,'scrollHeight',{value:20,configurable:true});await inputText('short');expect(input.style.height).toBe('58px');
+});
+it('has one settings entry and one contextual guide only when a model needs configuration',async()=>{
+ const state=snapshot();delete state.config;const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));
+ expect(container.querySelectorAll('.sidebar-bottom svg[data-icon=settings]')).toHaveLength(1);
+ expect(container.querySelector('.top-actions svg[data-icon=settings]')).toBeNull();
+ expect(container.querySelector('.welcome')?.textContent).not.toContain('模型');
+ expect(container.querySelectorAll('.model-guidance button')).toHaveLength(1);
+ expect(container.querySelector<HTMLSelectElement>('[aria-label=选择模型]')?.disabled).toBe(true);
+ const trigger=button('前往设置');await act(()=>trigger.click());expect(container.querySelector('.settings-page')?.getAttribute('aria-label')).toBe('设置页面');
+ await act(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})));expect(document.activeElement).toBe(trigger);
+});
+it('switches only the saved model ID without transferring credentials or changing session scope',async()=>{
+ const state=snapshot();state.keyPresent=true;state.config={provider:'deepseek',model:'current',baseUrl:'https://api.deepseek.com',thinking:'disabled'};
+ const c=client(state);let resolve!:(r:Result)=>void;
+ c.request.mockImplementation(async input=>{
+  if(input.type==='snapshot')return{snapshot:state};
+  if(input.type==='model.list')return{models:[{id:'next'}]};
+  if(input.type==='model.save')return new Promise(done=>{resolve=done;});return{};
+ });
+ await act(()=>root.render(<App initialClient={c.bridge}/>));const select=container.querySelector<HTMLSelectElement>('[aria-label=选择模型]')!;
+ expect(container.querySelector('.model-guidance')).toBeNull();
+ await act(()=>select.focus());expect(select.querySelector('option[value=next]')).not.toBeNull();
+ await act(()=>{select.value='next';select.dispatchEvent(new Event('change',{bubbles:true}));select.dispatchEvent(new Event('change',{bubbles:true}));});
+ const saves=c.request.mock.calls.filter(([r])=>r.type==='model.save');expect(saves).toHaveLength(1);
+ expect(saves[0][0]).toEqual({type:'model.save',config:{...state.config,model:'next'}});expect(select.disabled).toBe(true);
+ await act(()=>resolve({}));expect(select.disabled).toBe(false);expect(container.querySelector('[role=dialog]')).toBeNull();
+ expect(c.request.mock.calls.some(([r])=>r.type==='session.select'||r.type==='workspace.grant')).toBe(false);
+});
+it('disables model switching while any session runs, and exposes discovery failures without opening settings',async()=>{
+ const state=snapshot();state.sessions[1].activeRunId='running';const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));
+ const select=container.querySelector<HTMLSelectElement>('[aria-label=选择模型]')!;expect(select.disabled).toBe(true);
+ delete state.sessions[1].activeRunId;await act(()=>c.emit({type:'changed'}));
+ c.request.mockImplementationOnce(async()=>{throw new Error('model query failed');});await act(()=>select.focus());
+ expect(container.querySelector('[role=alert]')?.textContent).toContain('model query failed');expect(container.querySelector('[role=dialog]')).toBeNull();
+});
+it('keeps the workbench mounted and restores draft, selected session and preview after leaving settings',async()=>{
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));await inputText('保留草稿');
+ const toggle=container.querySelector<HTMLButtonElement>('[aria-label=切换工作区]')!;await act(()=>toggle.click());
+ const workbench=container.querySelector<HTMLElement>('.workbench')!,textarea=container.querySelector('textarea');const preview=container.querySelector('.browser-inspector');
+ await click('设置');expect(workbench.style.display).toBe('none');expect(workbench.hasAttribute('inert')).toBe(true);
+ await act(()=>window.dispatchEvent(new KeyboardEvent('keydown',{key:'n',ctrlKey:true,bubbles:true})));expect(c.request.mock.calls.some(([r])=>r.type==='session.create')).toBe(false);
+ await click('返回工作台');expect(workbench.style.display).toBe('');expect(container.querySelector('textarea')).toBe(textarea);expect(textarea?.value).toBe('保留草稿');expect(container.querySelector('.browser-inspector')).toBe(preview);expect(toggle.getAttribute('aria-expanded')).toBe('true');
+});
+it('explains the connection prerequisite before asking a disconnected user to create a session',async()=>{
+ await act(()=>root.render(<App/>));await click('授权工作目录');expect(container.querySelector('[role=alert]')?.textContent).toContain('本机服务未连接');expect(container.querySelector('[role=alert]')?.textContent).not.toContain('先新建');
+});
+it('requires explicit discard for unsaved settings and clears input credentials on leaving',async()=>{
+ const state=snapshot();state.config={provider:'deepseek',model:'original',baseUrl:'https://api.deepseek.com'};const c=client(state);
+ await act(()=>root.render(<App initialClient={c.bridge}/>));await click('设置');const key=container.querySelector<HTMLInputElement>('.settings-page input[type=password]')!;
+ await act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(key,'fake-test-only');key.dispatchEvent(new Event('input',{bubbles:true}));});
+ await click('返回工作台');expect(container.querySelector('[role=alertdialog]')).not.toBeNull();expect(document.activeElement?.textContent).toBe('继续编辑');
+ await act(()=>document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',shiftKey:true,bubbles:true,cancelable:true})));expect(document.activeElement?.textContent).toBe('放弃更改并返回');
+ await act(()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'})));expect(container.querySelector('[role=alertdialog]')).toBeNull();expect(key.value).toBe('fake-test-only');
+ await click('取消并返回');await click('放弃更改并返回');expect(c.request.mock.calls.some(([r])=>r.type==='model.save')).toBe(false);
+ await click('设置');expect(container.querySelector<HTMLInputElement>('.settings-page input[type=password]')?.value).toBe('');
+});
+it('saves custom endpoint settings without persisting a key and preserves unsaved configuration across categories',async()=>{
+ const state=snapshot();state.config={provider:'deepseek',model:'original',baseUrl:'https://api.deepseek.com'};state.credential={storage:'secure',saved:true};state.keyPresent=true;
+ const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));await click('设置');
+ const endpoint=container.querySelector<HTMLInputElement>('.settings-page input[type=url]')!;
+ await act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(endpoint,'https://example.com/v1');endpoint.dispatchEvent(new Event('input',{bubbles:true}));});
+ await act(()=>container.querySelector<HTMLButtonElement>('.settings-navigation nav button:last-child')!.click());
+ await act(()=>container.querySelector<HTMLButtonElement>('.settings-navigation nav button:first-child')!.click());expect(endpoint.value).toBe('https://example.com/v1');
+ const checkbox=container.querySelector<HTMLInputElement>('.settings-page input[type=checkbox]')!;expect(checkbox.checked).toBe(false);expect(checkbox.disabled).toBe(true);
+ await click('保存设置');expect(c.request.mock.calls.find(([r])=>r.type==='model.save')?.[0]).toEqual({type:'model.save',config:{...state.config,baseUrl:'https://example.com/v1'},rememberKey:false});
+ expect(container.querySelector('.settings-page')).not.toBeNull();
+});
+it('routes connection status to the same dedicated settings page without another configuration modal',async()=>{
+ await act(()=>root.render(<App/>));await click('本机 Host 未连接');
+ expect(container.querySelector('.settings-page h2')?.textContent).toBe('本机连接');expect(container.querySelector('[role=dialog]')).toBeNull();
+ expect(container.querySelector('.settings-navigation [aria-current=page]')?.textContent).toBe('本机连接');
+ await click('返回工作台');expect(container.querySelector('.settings-page')).toBeNull();
 });
