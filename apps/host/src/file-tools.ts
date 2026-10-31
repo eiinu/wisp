@@ -114,6 +114,7 @@ function directoryTools(files:WorkspaceFiles,desktop?:DesktopService):Tool[]{
   if(destination===path||destination.startsWith(path+'/'))throw new Error('不能移动到自身或子目录');
   await absent(files,destination);const before=await treeVersion(files,path,signal);
   const destParent=dirname(destination)==='.'?'':dirname(destination),parent=await fingerprint(files,destParent);
+  if(before.entries.some(entry=>entry.identity.split(':')[0]!==parent.identity.split(':')[0]))throw new Error('不支持跨磁盘移动，源目录必须全部位于目标所在文件系统');
   return {description:`移动 / 重命名：${path} → ${destination}\n共 ${before.entries.length} 项；版本 ${before.digest}\n目标必须不存在。目录按项移动，取消或失败可能部分完成；不会覆盖或永久删除文件。`,execute:async signal=>{
    signal.throwIfAborted();await absent(files,destination);
    if((await treeVersion(files,path,signal)).digest!==before.digest||(await fingerprint(files,destParent)).identity!==parent.identity)throw new Error('审批已过期：源内容或目标父目录改变');

@@ -57,3 +57,23 @@ it('blocks changed symlinks and directories containing private data before mutat
  await expect(guarded.tools().find(t=>t.name==='files_move')!.prepare!({path:'parent',destination:'other'},signal)).rejects.toThrow('私有');
  }finally{await rm(root,{recursive:true,force:true});}
 });
+it('cancelling a directory move preserves completed targets and remaining sources and never reports success',async()=>{
+ const {root,work,files}=await setup();try{
+ await mkdir(join(work,'folder'));await writeFile(join(work,'folder/a'),'first');await writeFile(join(work,'folder/b'),'second');
+ const controller=new AbortController(),signal=controller.signal;
+ const plan=await files.tools().find(t=>t.name==='files_move')!.prepare!({path:'folder',destination:'renamed'},signal);
+ const resolve=files.resolve.bind(files);let firstLinked=false;
+ files.resolve=async(path,allowNew)=>{const target=await resolve(path,allowNew);if(path==='renamed/a'&&!allowNew)firstLinked=true;if(firstLinked&&path==='folder/b')controller.abort();return target;};
+ await expect(plan.execute(signal)).rejects.toThrow('移动未完全完成');
+ expect(await readFile(join(work,'renamed/a'),'utf8')).toBe('first');expect(await readFile(join(work,'folder/b'),'utf8')).toBe('second');
+ await expect(readFile(join(work,'folder/a'))).rejects.toThrow();await expect(readFile(join(work,'renamed/b'))).rejects.toThrow();
+ }finally{await rm(root,{recursive:true,force:true});}
+});
+it('cancelling between link and unlink preserves both names',async()=>{
+ const {root,work,files}=await setup();try{
+ await writeFile(join(work,'source'),'safe');const controller=new AbortController(),signal=controller.signal;
+ const plan=await files.tools().find(t=>t.name==='files_move')!.prepare!({path:'source',destination:'target'},signal);
+ const resolve=files.resolve.bind(files);files.resolve=async(path,allowNew)=>{const target=await resolve(path,allowNew);if(path==='target'&&!allowNew)controller.abort();return target;};
+ await expect(plan.execute(signal)).rejects.toThrow('移动未完全完成');expect(await readFile(join(work,'source'),'utf8')).toBe('safe');expect(await readFile(join(work,'target'),'utf8')).toBe('safe');
+ }finally{await rm(root,{recursive:true,force:true});}
+});
