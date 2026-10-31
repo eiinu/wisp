@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ProjectInfo, Request, Result, SessionInfo } from '@wisp/core';
 import { WorkspaceIcon } from './workspace-icon.js';
@@ -11,10 +11,17 @@ export function ProjectSidebar({ projects, sessions, selected, connected, reques
   const [dialog, setDialog] = useState<'create' | ProjectInfo>(), [name, setName] = useState(''), [path, setPath] = useState('');
   const [pending, setPending] = useState(false), [error, setError] = useState('');
   const lock = useRef(false), generation = useRef(0), modal = useRef<HTMLElement>(null);
+  const returnFocus = useRef<HTMLButtonElement | null>(null);
+  useLayoutEffect(() => {
+    if (dialog || pending) return;
+    const target = returnFocus.current; returnFocus.current = null;
+    // Async saves can close the dialog before the trigger is re-enabled.
+    // Restore once, after that commit, without taking focus from another control.
+    if (target?.isConnected && !target.disabled && document.activeElement === document.body) target.focus();
+  }, [dialog, pending]);
   useEffect(() => { onDialogChange(!!dialog); return () => onDialogChange(false); }, [!!dialog, onDialogChange]);
   useEffect(() => {
     if (!dialog) return;
-    const previous = document.activeElement as HTMLElement;
     const focusable = () => Array.from(modal.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled)') ?? []);
     focusable()[0]?.focus();
     const key = (event: KeyboardEvent) => {
@@ -22,7 +29,7 @@ export function ProjectSidebar({ projects, sessions, selected, connected, reques
       if (event.key === 'Tab') { const items = focusable(), first = items[0], last = items.at(-1); if (event.shiftKey && (document.activeElement === first || !modal.current?.contains(document.activeElement))) { event.preventDefault(); last?.focus(); } else if (!event.shiftKey && (document.activeElement === last || !modal.current?.contains(document.activeElement))) { event.preventDefault(); first?.focus(); } }
     };
     document.addEventListener('keydown', key, true);
-    return () => { document.removeEventListener('keydown', key, true); if (previous?.isConnected) previous.focus(); };
+    return () => { document.removeEventListener('keydown', key, true); };
   }, [dialog]);
   async function perform(task: () => Promise<void>) {
     if (lock.current || !connected) return;
@@ -31,7 +38,7 @@ export function ProjectSidebar({ projects, sessions, selected, connected, reques
     finally { lock.current = false; setPending(false); }
   }
   const close = () => { if (!lock.current) { generation.current++; setDialog(undefined); setError(''); } };
-  const edit = (project?: ProjectInfo) => { generation.current++; setName(project?.name ?? ''); setPath(project?.workspace ?? ''); setError(''); setDialog(project ?? 'create'); };
+  const edit = (trigger: HTMLButtonElement, project?: ProjectInfo) => { returnFocus.current = trigger; generation.current++; setName(project?.name ?? ''); setPath(project?.workspace ?? ''); setError(''); setDialog(project ?? 'create'); };
   async function createSession(project: ProjectInfo, directory = false) {
     await perform(async () => {
       const existing = directory ? sessions.find(s => s.id === selected && s.projectId === project.id) ?? sessions.find(s => s.projectId === project.id) : undefined;
@@ -43,12 +50,12 @@ export function ProjectSidebar({ projects, sessions, selected, connected, reques
   const sessionButtons = (items: SessionInfo[]) => items.map(session => <button aria-current={session.id === selected ? 'page' : undefined} className={`session ${session.id === selected ? 'selected' : ''}`} key={session.id} onClick={() => select(session.id)} disabled={!connected}><span className="session-title">{session.title}</span>{session.activeRunId ? <span className="pulse" title="执行中"/> : <small>{new Date(session.updatedAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</small>}</button>);
   return <>
     <nav className="project-navigation" aria-label="项目与会话">
-      <div className="project-section-heading"><span>项目</span><button aria-label="新建项目" title="新建项目" disabled={!connected || pending} onClick={() => edit()}><WorkspaceIcon name="plus"/></button></div>
+      <div className="project-section-heading"><span>项目</span><button aria-label="新建项目" title="新建项目" disabled={!connected || pending} onClick={event => edit(event.currentTarget)}><WorkspaceIcon name="plus"/></button></div>
       {projects.map(project => <section className="project-group" key={project.id}>
-        <div className="project-row"><button className="project-toggle" aria-label={`${project.collapsed ? '展开' : '收起'}项目 ${project.name}`} aria-expanded={!project.collapsed} aria-controls={`project-${project.id}`} disabled={!connected || pending} onClick={() => void perform(async () => { await request({type:'project.collapse',projectId:project.id,collapsed:!project.collapsed}); })}><WorkspaceIcon name="folder"/><span title={project.name}>{project.name}</span><span aria-hidden="true">{project.collapsed ? '›' : '⌄'}</span></button><button aria-label={`重命名项目 ${project.name}`} title="重命名项目" disabled={!connected || pending} onClick={() => edit(project)}><WorkspaceIcon name="edit"/></button></div>
+        <div className="project-row"><button className="project-toggle" aria-label={`${project.collapsed ? '展开' : '收起'}项目 ${project.name}`} aria-expanded={!project.collapsed} aria-controls={`project-${project.id}`} disabled={!connected || pending} onClick={() => void perform(async () => { await request({type:'project.collapse',projectId:project.id,collapsed:!project.collapsed}); })}><WorkspaceIcon name="folder"/><span title={project.name}>{project.name}</span><span aria-hidden="true">{project.collapsed ? '›' : '⌄'}</span></button><button aria-label={`重命名项目 ${project.name}`} title="重命名项目" disabled={!connected || pending} onClick={event => edit(event.currentTarget, project)}><WorkspaceIcon name="edit"/></button></div>
         <div id={`project-${project.id}`} hidden={project.collapsed} className="project-children">
           <button className="project-directory" title={project.workspace} disabled={!connected || pending} onClick={() => void createSession(project, true)}><WorkspaceIcon name="folder"/><span>项目目录</span></button>
-          <button className="project-new-chat" disabled={!connected || pending} onClick={() => void createSession(project)}><WorkspaceIcon name="plus"/>新对话 · {project.name}</button>
+          <button className="project-new-chat" title={`在 ${project.name} 中新建对话`} aria-label={`在 ${project.name} 中新建对话`} disabled={!connected || pending} onClick={() => void createSession(project)}><WorkspaceIcon name="plus"/><span>新对话</span></button>
           {sessionButtons(sessions.filter(s => s.projectId === project.id))}
         </div>
       </section>)}

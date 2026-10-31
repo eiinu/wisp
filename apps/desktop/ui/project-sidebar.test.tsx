@@ -29,7 +29,7 @@ it('groups sessions, persists collapse, opens the matching directory and prevent
  await act(()=>root.render(<ProjectSidebar {...p} projects={[{...project,collapsed:true}]}/>));expect(container.querySelector('.project-children')?.hasAttribute('hidden')).toBe(true);
  await act(()=>root.render(<ProjectSidebar {...p}/>));
  let release!:(r:any)=>void;p.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
- await act(()=>{text('新对话 · Project').click();text('新对话 · Project').click();});
+ await act(()=>{get('在 Project 中新建对话').click();get('在 Project 中新建对话').click();});
  expect(p.request.mock.calls.filter(([r])=>(r as any).type==='session.create')).toHaveLength(1);
  await act(()=>release({sessionId:'new'}));expect(p.select).toHaveBeenCalledWith('new');
 });
@@ -46,4 +46,26 @@ it('does not grant anything when the native picker is cancelled',async()=>{
  expect(document.querySelector<HTMLInputElement>('[aria-label=项目文件夹]')?.value).toBe('');
  expect(text('创建并授权项目').disabled).toBe(true);expect(p.request).not.toHaveBeenCalled();
  await act(()=>text('取消').click());expect(document.querySelector('[role=dialog]')).toBeNull();
+});
+
+it.each(['create','rename'] as const)('restores the trigger after an asynchronous %s success',async(mode)=>{
+ const p=props();await act(()=>root.render(<ProjectSidebar {...p} chooseDirectory={async()=>'/fixture/new'}/>));
+ const trigger=get(mode==='create'?'新建项目':'重命名项目 Project');
+ // Pointer activation need not focus the trigger (e.g. Safari).
+ await act(()=>trigger.click());
+ if(mode==='create')await act(()=>text('选择文件夹…').click());
+ let release!:(r:any)=>void;p.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
+ await act(()=>text(mode==='create'?'创建并授权项目':'保存名称').click());expect(trigger.disabled).toBe(true);
+ await act(()=>release({projectId:'created'}));
+ expect(document.querySelector('[role=dialog]')).toBeNull();expect(trigger.disabled).toBe(false);expect(document.activeElement).toBe(trigger);
+});
+it('keeps long names out of the visible new-chat label while naming its project accessibly',async()=>{
+ const name='跨团队长期研究资料整理与产品设计验证项目用于检查超长中文标题在侧边栏以及新对话入口中的排版和键盘访问表现';
+ await act(()=>root.render(<ProjectSidebar {...props()} projects={[{...project,name}]}/>));
+ const button=get(`在 ${name} 中新建对话`);expect(button.textContent).toBe('新对话');expect(button.title).toBe(`在 ${name} 中新建对话`);
+});
+it('does not steal focus if another control was focused while a save resolved',async()=>{
+ const p=props();await act(()=>root.render(<ProjectSidebar {...p}/>));await act(()=>get('重命名项目 Project').click());
+ let release!:(r:any)=>void;p.request.mockImplementationOnce(()=>new Promise(r=>{release=r;}));
+ await act(()=>text('保存名称').click());const other=Array.from(container.querySelectorAll<HTMLButtonElement>('.session')).find(button=>button.querySelector('.session-title')?.textContent==='Outside')!;other.focus();await act(()=>release({}));expect(document.activeElement).toBe(other);
 });

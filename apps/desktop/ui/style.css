@@ -138,3 +138,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 
 .qa-layout .qa-project-sidebar{position:static;transform:none;width:210px;min-width:180px;height:100%;box-shadow:none}
 @media(max-width:680px){.qa-layout .qa-project-sidebar{width:160px;min-width:140px}}
+
+.project-new-chat>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
