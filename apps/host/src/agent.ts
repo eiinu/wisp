@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Registry, type ModelProvider, type GenerationProvider, type Message, type RunEvent, type Tool } from '@wisp/core';
+import { Registry, questionnaireSchema, validateQuestionResponse, type Questionnaire, type QuestionResponse, type ModelProvider, type GenerationProvider, type Message, type RunEvent, type Tool } from '@wisp/core';
 import { asModelProvider } from './model.js';
 import { EventLog } from './log.js';
 export class Agent {
   private active?: { id: string; controller: AbortController };
+  private question?: {runId:string;ticket:string;form:Questionnaire;resolve(value:QuestionResponse):void};
   private pending?: { runId: string; callId: string; resolve: (value: boolean) => void };
   constructor(private model: ModelProvider | GenerationProvider, private tools: Registry<Tool> | (() => Tool[]), private log: EventLog, private publish: (event: RunEvent) => void, private sessionId?: string, private redact: (text: string) => string = text => text, private credentialLength = 0, private checkpoint?: (messages: Message[]) => Promise<void>) {}
   private redactData(value: unknown): unknown {
@@ -16,6 +17,12 @@ export class Agent {
   approve(runId: string, callId: string, allowed: boolean) {
     if (!this.pending || this.pending.runId !== runId || this.pending.callId !== callId) throw new Error('No matching pending approval');
     const pending = this.pending; this.pending = undefined; pending.resolve(allowed);
+  }
+  answer(runId:string,ticket:string,response:unknown) {
+    const pending=this.question;
+    if(!pending||this.active?.controller.signal.aborted||pending.runId!==runId||pending.ticket!==ticket)throw new Error('没有匹配的待回答问题');
+    const answer=validateQuestionResponse(pending.form,response);
+    this.question=undefined;pending.resolve(answer);
   }
   cancel(runId: string) { if (this.active?.id === runId) this.active.controller.abort(); }
   async run(prompt: string, maxSteps = 6, history: Message[] = []) {
@@ -30,6 +37,16 @@ export class Agent {
       for (const key of ['id', 'callId', 'name']) if (key in data) safeData[key] = data[key];
       if (data.source && typeof data.source === 'object' && safeData.source && typeof safeData.source === 'object') {
         (safeData.source as Record<string,unknown>).serviceId = (data.source as Record<string,unknown>).serviceId;
+      }
+      if(type==='question_requested'||type==='question_resolved') {
+        safeData.ticket=data.ticket;
+        if(type==='question_requested') {
+          const form=data.questionnaire as Questionnaire, safe=safeData.questionnaire as Questionnaire;
+          safe.questions.forEach((q,i)=>{q.id=form.questions[i].id;q.type=form.questions[i].type;q.options?.forEach((o,j)=>{o.id=form.questions[i].options![j].id;});});
+        } else {
+          const response=data.response as QuestionResponse,safe=safeData.response as QuestionResponse;safe.status=response.status;
+          if(response.status==='answered'&&safe.status==='answered')safe.answers.forEach((a,i)=>{a.questionId=response.answers[i].questionId;a.optionIds=response.answers[i].optionIds;});
+        }
       }
       const event: RunEvent = { version: 1, id: randomUUID(), runId: id, sessionId: this.sessionId, at: new Date().toISOString(), type, data: safeData };
       await this.log.append(event); this.publish(event);
@@ -103,6 +120,19 @@ export class Agent {
             await emit('tool_result', { step, callId: call.id, name: call.name, text, isError: true });
             continue;
           }
+          if(tool.interaction==='questionnaire'&&!tool.source) {
+            const form=questionnaireSchema.parse(call.args), ticket=randomUUID();
+            const decision=new Promise<QuestionResponse>(resolve=>{this.question={runId:id,ticket,form,resolve};});
+            try {
+              await emit('question_requested',{step,callId:call.id,ticket,questionnaire:form});
+              const response=await abortable(decision,signal);signal.throwIfAborted();
+              await emit('question_resolved',{step,callId:call.id,ticket,response});
+              const text=JSON.stringify(response);
+              messages.push({role:'tool',text,callId:call.id,toolName:call.name});await this.checkpoint?.(messages);
+              await emit('tool_result',{step,callId:call.id,name:call.name,text});
+            } finally {this.question=undefined;}
+            continue;
+          }
           const execute = prepared ? (_args: Record<string, unknown>, signal: AbortSignal) => prepared!.execute(signal) : tool.execute.bind(tool);
           if (tool.requiresApproval) {
             const decision = new Promise<boolean>(resolve => { this.pending = { runId: id, callId: call.id, resolve }; });
@@ -133,7 +163,7 @@ export class Agent {
       await emit('failed', { reason: 'Step budget exhausted' });
     } catch (e) {
       await emit(signal.aborted ? 'cancelled' : 'failed', { reason: signal.aborted ? 'Cancelled by user' : e instanceof Error ? e.message : 'Unknown failure' });
-    } finally { try { await this.checkpoint?.(messages); } finally { this.pending = undefined; this.active = undefined; } }
+    } finally { try { await this.checkpoint?.(messages); } finally { this.pending = undefined; this.question=undefined; this.active = undefined; } }
   }
 }
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {

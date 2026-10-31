@@ -1,0 +1,51 @@
+import {afterEach,it,expect,vi} from 'vitest';
+import {mkdtemp,rm,mkdir,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {randomUUID} from 'node:crypto';
+import {createServer} from 'node:http';
+import {questionnaireSchema,validateQuestionResponse,type RunEvent,type GenerationProvider} from '../packages/core/src/index.js';
+import {askUserTool} from '../apps/host/src/questionnaire.js';
+import {Agent} from '../apps/host/src/agent.js';
+import {EventLog} from '../apps/host/src/log.js';
+import {Runtime} from '../apps/host/src/runtime.js';
+const clean:(()=>Promise<unknown>)[]=[];afterEach(async()=>{for(const f of clean.splice(0).reverse())await f();});
+async function dir(){const d=await mkdtemp(join(tmpdir(),'wisp-question-'));clean.push(()=>rm(d,{recursive:true,force:true}));return d;}
+export const form={title:'任务细节',questions:[{id:'format',title:'输出格式',type:'single',required:true,allowCustom:true,options:[{id:'a',label:'摘要'},{id:'b',label:'报告'}]},{id:'topics',title:'关注内容',type:'multiple',required:true,allowCustom:true,options:[{id:'a',label:'进展'},{id:'b',label:'风险'}]},{id:'note',title:'补充说明',type:'text',required:false}]};
+const response={status:'answered',answers:[{questionId:'format',optionIds:[],text:'自定义格式'},{questionId:'topics',optionIds:['a','b'],text:'另加计划'},{questionId:'note',optionIds:[],text:'同意'}]};
+it('validates question schema and structured answers without inferring defaults',()=>{
+ const q=questionnaireSchema.parse(form);expect(validateQuestionResponse(q,response)).toEqual(response);expect(validateQuestionResponse(q,{status:'cancelled'})).toEqual({status:'cancelled'});
+ for(const questions of [[],Array(7).fill(form.questions[0]),[form.questions[0],form.questions[0]],[{...form.questions[0],options:[{id:'a',label:'x'},{id:'a',label:'y'}]}],[{...form.questions[2],options:[{id:'a',label:'x'}]}]])expect(questionnaireSchema.safeParse({...form,questions}).success).toBe(false);
+ for(const answers of [[],[...response.answers,response.answers[0]],response.answers.map(a=>({...a,questionId:'other'})),response.answers.map(a=>({...a,optionIds:['unknown']})),response.answers.map(a=>({...a,text:'',optionIds:[]})),response.answers.map(a=>a.questionId==='format'?{...a,optionIds:['a','b']}:a)])expect(()=>validateQuestionResponse(q,{status:'answered',answers})).toThrow();
+ expect(()=>askUserTool.validate!({...form,title:'请输入 API Key'})).toThrow('秘密');
+});
+it('waits without extra model calls, rejects stale tickets and never treats answers as approval',async()=>{
+ const events:RunEvent[]=[],execute=vi.fn(async()=> 'written');let turns=0;
+ const provider:GenerationProvider={generate:async messages=>{turns++;if(turns===1)return{text:'',calls:[{id:'q',name:'ask_user',args:form},{id:'write',name:'write',args:{}}]};expect(JSON.parse(messages.find(m=>m.callId==='q'&&m.role==='tool')!.text)).toEqual(response);return{text:'done'};}};
+ const agent=new Agent(provider,()=>[askUserTool,{name:'write',description:'actual operation',inputSchema:{},requiresApproval:true,execute}],new EventLog(join(await dir(),'log')),e=>events.push(e));
+ const task=agent.run('question',2);await vi.waitFor(()=>expect(events.some(e=>e.type==='question_requested')).toBe(true));const e=events.find(e=>e.type==='question_requested')!;
+ expect(turns).toBe(1);expect(()=>agent.approve(e.runId,'q',true)).toThrow();expect(()=>agent.answer('wrong',String(e.data.ticket),response)).toThrow();expect(()=>agent.answer(e.runId,randomUUID(),response)).toThrow();expect(()=>agent.answer(e.runId,String(e.data.ticket),{status:'answered',answers:[]})).toThrow();
+ agent.answer(e.runId,String(e.data.ticket),response);expect(()=>agent.answer(e.runId,String(e.data.ticket),response)).toThrow();await vi.waitFor(()=>expect(events.some(e=>e.type==='approval_requested')).toBe(true));expect(execute).not.toHaveBeenCalled();agent.approve(e.runId,'write',false);await task;expect(execute).not.toHaveBeenCalled();expect(turns).toBe(2);expect(events.at(-1)?.type).toBe('completed');
+});
+it('cancels waiting immediately and rejects late answers; MCP cannot impersonate questionnaire',async()=>{
+ const events:RunEvent[]=[],d=await dir();const agent=new Agent({generate:async()=>({text:'',calls:[{id:'q',name:'ask_user',args:form}]})},()=>[askUserTool],new EventLog(join(d,'log')),e=>events.push(e));const task=agent.run('x');await vi.waitFor(()=>expect(events.some(e=>e.type==='question_requested')).toBe(true));const e=events.find(e=>e.type==='question_requested')!;agent.cancel(e.runId);expect(()=>agent.answer(e.runId,String(e.data.ticket),response)).toThrow();await task;expect(events.at(-1)?.type).toBe('cancelled');expect(events.some(e=>e.type==='question_resolved')).toBe(false);
+ const other:RunEvent[]=[];const mcp=new Agent({generate:async()=>({text:'',calls:[{id:'fake',name:'mcp_fake_ask_user',args:form}]})},()=>[{...askUserTool,name:'mcp_fake_ask_user',requiresApproval:true,source:{serviceId:'s',serviceName:'untrusted',toolName:'ask_user'}}],new EventLog(join(d,'other')),e=>other.push(e));const running=mcp.run('x');await vi.waitFor(()=>expect(other.some(e=>e.type==='approval_requested')).toBe(true));expect(other.some(e=>e.type==='question_requested')).toBe(false);mcp.cancel(other[0].runId);await running;
+});
+it('round trips real DeepSeek SSE through Host questionnaire; isolates sessions, cancellation and restart history',async()=>{
+ const received:any[]=[];const server=createServer(async(req,res)=>{let body='';for await(const c of req)body+=c;const input=JSON.parse(body);received.push(input);const current=input.messages.slice(input.messages.findLastIndex((m:any)=>m.role==='user')),result=current.find((m:any)=>m.role==='tool');res.writeHead(200,{'content-type':'text/event-stream'});const delta=result?{content:`Received ${JSON.parse(result.content).status}`}:{tool_calls:[{index:0,id:'question-call',type:'function',function:{name:'ask_user',arguments:JSON.stringify(form)}}]};res.end(`data: ${JSON.stringify({choices:[{index:0,delta,finish_reason:null}]})}\n\ndata: ${JSON.stringify({choices:[{index:0,delta:{},finish_reason:result?'stop':'tool_calls'}]})}\n\ndata: [DONE]\n\n`);});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));clean.push(()=>new Promise<void>(r=>server.close(()=>r())));
+ const d=await dir(),runtime=new Runtime(d,undefined,undefined,{baseUrl:`http://127.0.0.1:${(server.address() as any).port}`,key:'fake-question-key'});await runtime.init();clean.push(()=>runtime.shutdown());
+ const a=(await runtime.request({type:'session.create'})).sessionId!,b=(await runtime.request({type:'session.create'})).sessionId!;
+ for(const sessionId of [a,b])await runtime.request({type:'run.start',sessionId,prompt:'clarify'});
+ await vi.waitFor(()=>expect(runtime.snapshot().events.filter(e=>e.type==='question_requested')).toHaveLength(2));const event=runtime.snapshot().events.find(e=>e.sessionId===a&&e.type==='question_requested')!;
+ const input={type:'run.answer',sessionId:a,runId:event.runId,ticket:event.data.ticket,response};await expect(runtime.request({...input,sessionId:b})).rejects.toThrow();await expect(runtime.request({type:'run.approve',sessionId:a,runId:event.runId,callId:'question-call',allowed:true})).rejects.toThrow();
+ await runtime.request(input);await expect(runtime.request(input)).rejects.toThrow();const eb=runtime.snapshot().events.find(e=>e.sessionId===b&&e.type==='question_requested')!;await runtime.request({type:'run.answer',sessionId:b,runId:eb.runId,ticket:eb.data.ticket,response:{status:'cancelled'}});
+ await vi.waitFor(()=>expect(runtime.snapshot().events.filter(e=>e.type==='completed')).toHaveLength(2));expect(runtime.snapshot().events.filter(e=>e.type==='approval_requested')).toHaveLength(0);expect(received[0].tools.some((t:any)=>t.function.name==='ask_user')).toBe(true);expect(received.some(r=>r.messages.some((m:any)=>m.role==='tool'&&m.content===JSON.stringify(response)))).toBe(true);
+ await runtime.request({type:'run.start',sessionId:a,prompt:'again'});await vi.waitFor(()=>expect(runtime.snapshot().events.filter(e=>e.sessionId===a&&e.type==='question_requested')).toHaveLength(2));const last=runtime.snapshot().events.findLast(e=>e.type==='question_requested')!;await runtime.request({type:'run.cancel',sessionId:a,runId:last.runId});await vi.waitFor(()=>expect(runtime.snapshot().sessions.find(s=>s.id===a)?.activeRunId).toBeUndefined());await expect(runtime.request({type:'run.retry',sessionId:a})).rejects.toThrow('不能自动重放');await runtime.shutdown();
+ // Simulate an interrupted process by persisting a started run + unresolved question, no live waiter.
+ const crashRun=randomUUID();const log=new EventLog(join(d,'sessions',`${a}.jsonl`));await log.append({...last,id:randomUUID(),runId:crashRun,type:'started',data:{prompt:'interrupted'}});await log.append({...last,id:randomUUID(),runId:crashRun});
+ const restored=new Runtime(d);await restored.init();clean.push(()=>restored.shutdown());expect(restored.snapshot().events.some(e=>e.runId===crashRun&&e.type==='failed')).toBe(true);await expect(restored.request({...input,runId:crashRun,ticket:last.data.ticket})).rejects.toThrow();expect(JSON.stringify(restored.snapshot())).not.toContain('fake-question-key');
+});
+it('keeps question control IDs intact while redacting display text and response text',async()=>{
+ const events:RunEvent[]=[];const agent=new Agent({generate:async messages=>messages.some(m=>m.role==='tool')?{text:'done'}:{text:'',calls:[{id:'qa',name:'ask_user',args:form}]}},()=>[askUserTool],new EventLog(join(await dir(),'log')),e=>events.push(e),undefined,text=>text.split('a').join('[REDACTED]'));
+ const task=agent.run('x');await vi.waitFor(()=>expect(events.some(e=>e.type==='question_requested')).toBe(true));const pending=events.find(e=>e.type==='question_requested')!;expect((pending.data.questionnaire as any).questions[0].options[0].id).toBe('a');expect((pending.data.questionnaire as any).questions[0].type).toBe('single');agent.answer(pending.runId,String(pending.data.ticket),response);await task;const answered=events.find(e=>e.type==='question_resolved')!;expect((answered.data.response as any).status).toBe('answered');expect((answered.data.response as any).answers[1].optionIds).toEqual(['a','b']);
+});

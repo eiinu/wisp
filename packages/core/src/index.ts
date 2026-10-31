@@ -1,7 +1,9 @@
+export * from './questionnaire.js';
+import { questionResponseSchema } from './questionnaire.js';
 import { z } from 'zod';
 export const eventSchema = z.object({
   version: z.literal(1), id: z.string().uuid(), runId: z.string().uuid(), sessionId: z.string().uuid().optional(), at: z.string(),
-  type: z.enum(['started','assistant_delta','assistant','tool_requested','tool_started','approval_requested','approval_resolved','tool_result','completed','cancelled','failed','model_usage','model_finish','model_error','model_activity']),
+  type: z.enum(['started','assistant_delta','assistant','tool_requested','tool_started','approval_requested','approval_resolved','question_requested','question_resolved','tool_result','completed','cancelled','failed','model_usage','model_finish','model_error','model_activity']),
   data: z.record(z.string(), z.unknown()),
 });
 export type RunEvent = z.infer<typeof eventSchema>;
@@ -9,7 +11,7 @@ export type Message = { role: 'user' | 'assistant' | 'tool'; text: string; callI
 export type ModelReply = { text: string; calls?: { id: string; name: string; args: Record<string, unknown> }[] };
 export interface GenerationProvider { generate(messages: Message[], tools: ToolSpec[], signal: AbortSignal, onText?: (text: string) => void): Promise<ModelReply> }
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
-export interface Tool extends ToolSpec { source?: { serviceId: string; serviceName: string; toolName: string }; requiresApproval: boolean; prepare?(args: Record<string, unknown>, signal: AbortSignal): Promise<{ description: string; execute(signal: AbortSignal): Promise<string> }>; validate?(args: Record<string, unknown>): void | Promise<void>; execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string> }
+export interface Tool extends ToolSpec { interaction?: 'questionnaire'; source?: { serviceId: string; serviceName: string; toolName: string }; requiresApproval: boolean; prepare?(args: Record<string, unknown>, signal: AbortSignal): Promise<{ description: string; execute(signal: AbortSignal): Promise<string> }>; validate?(args: Record<string, unknown>): void | Promise<void>; execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string> }
 export class Registry<T> {
   private entries = new Map<string, T>();
   register(name: string, item: T) { if (this.entries.has(name)) throw new Error(`Duplicate registration: ${name}`); this.entries.set(name, item); }
@@ -62,6 +64,7 @@ export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().min(1).max(16000), maxSteps: z.number().int().min(1).max(20).default(8) }),
   z.object({ type: z.literal('run.retry'), sessionId: sid }),
   z.object({ type: z.literal('run.cancel'), sessionId: sid, runId: sid }),
+  z.object({ type:z.literal('run.answer'), sessionId:sid, runId:sid, ticket:sid, response:questionResponseSchema }).strict(),
   z.object({ type: z.literal('run.approve'), sessionId: sid, runId: sid, callId: z.string().min(1), allowed: z.boolean() }),
   z.object({ type: z.literal('workspace.grant'), sessionId: sid, path: z.string().min(1).max(4096), confirmed: z.literal(true) }),
   z.object({ type: z.literal('workspace.revoke'), sessionId: sid }),

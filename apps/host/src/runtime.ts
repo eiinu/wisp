@@ -1,3 +1,4 @@
+import { askUserTool } from './questionnaire.js';
 import { PreviewTabs } from './preview-tabs.js';
 import { pageReadTool } from './page-tool.js';
 import type { DesktopService } from './desktop-service.js';
@@ -159,10 +160,10 @@ export class Runtime {
     } else if (command.type === 'workspace.revoke') { if (session.projectId) throw new Error('项目会话继承项目目录，不能单独撤销授权'); this.idle(session.id); delete session.workspace; }
     else if (command.type === 'files.list') return { entries: await (await this.workspace(session)).list(command.path) };
     else if (command.type === 'files.read') return { file: await (await this.workspace(session)).read(command.path) };
-    else if (command.type === 'run.cancel' || command.type === 'run.approve') {
+    else if (command.type === 'run.cancel' || command.type === 'run.approve' || command.type==='run.answer') {
       const agent = this.agents.get(session.id);
       if (!agent || agent.activeRunId !== command.runId) throw new Error('没有匹配的运行任务');
-      if (command.type === 'run.cancel') { agent.cancel(command.runId);  } else agent.approve(command.runId, command.callId, command.allowed);
+      if(command.type==='run.answer')agent.answer(command.runId,command.ticket,command.response); else if (command.type === 'run.cancel') { agent.cancel(command.runId);  } else agent.approve(command.runId, command.callId, command.allowed);
       return {};
     } else {
       this.idle(session.id); this.busy.add(session.id);
@@ -183,7 +184,7 @@ export class Runtime {
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
-        const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
+        const tools = new Registry<Tool>(); tools.register('ask_user',askUserTool); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
 
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
