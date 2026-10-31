@@ -50,7 +50,7 @@ it('page read binds session, tab and navigation version, consumes approval once 
  const {controller}=setup();controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://example.com'});
  const wc=mocks.views[0].webContents;wc.executeJavaScriptInIsolatedWorld=vi.fn(async()=>({title:'Article',text:'visible article',links:[],truncated:false}));
  const signal=new AbortController().signal;
- const p=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);expect(p).toMatchObject({tabId:'a',url:'https://example.com/redirected'});expect(wc.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+ const p=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);expect(p).toMatchObject({url:'https://example.com/redirected'});expect(wc.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
  expect(await controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).toMatchObject({text:'visible article'});
  await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).rejects.toThrow('过期');
  const stale=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);wc.emit('did-start-navigation',{},'https://example.com/changed',false,true);

@@ -175,7 +175,7 @@ export class Runtime {
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
-        const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools()) tools.register(tool.name, tool);
+        const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
         for (const tool of this.browsers.get(session.id)?.tools() ?? []) tools.register(tool.name, tool);
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));

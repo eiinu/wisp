@@ -8,7 +8,7 @@ export function createBrowser(window: BrowserWindow) {
   const remote = session.fromPartition(`wisp-browser-${randomUUID()}`);
   remote.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   remote.setPermissionCheckHandler(() => false);
-  const pages = new Map<string, { view: WebContentsView; state: BrowserPage; generation: number; owner?: string }>();
+  const pages = new Map<string, { view: WebContentsView; state: BrowserPage; generation: number; owner?: string; publicId: string }>();
   const downloads = new Map<string, { item?: DownloadItem; state: BrowserDownload }>();
   let disposed = false, currentSession: string | undefined, activeTab: string | undefined;
   const readTickets = new Map<string, {tabId:string;sessionId:string;generation:number;url:string;expires:number}>();
@@ -38,7 +38,7 @@ export function createBrowser(window: BrowserWindow) {
     if (!page) {
       if (pages.size >= 12) throw new Error('最多打开 12 个网页标签');
       const view = new WebContentsView({ webPreferences: { session: remote, sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, allowRunningInsecureContent: false, navigateOnDragDrop: false } });
-      page = { view, generation: 0, owner: currentSession, state: { id, url, title: new URL(url).hostname, loading: true, back: false, forward: false } };
+      page = { view, generation: 0, publicId: randomUUID(), owner: currentSession, state: { id, url, title: new URL(url).hostname, loading: true, back: false, forward: false } };
       pages.set(id, page); window.contentView.addChildView(view); view.setVisible(false);
       const wc = view.webContents, state = page.state;
       const sync = () => { if (wc.isDestroyed()) return; state.url = wc.getURL() || state.url; state.title = wc.getTitle() || state.title; state.loading = wc.isLoading(); state.back = wc.navigationHistory.canGoBack(); state.forward = wc.navigationHistory.canGoForward(); emit(); };
@@ -93,12 +93,12 @@ export function createBrowser(window: BrowserWindow) {
     if(operation==='page.prepare') {
       for(const [id,t] of readTickets) if(t.expires<Date.now())readTickets.delete(id);
       if(readTickets.size>=32)throw new Error('待审批读取过多，请稍后重试');
-      const tabId=typeof payload.tabId==='string'?payload.tabId:activeTab;
+      const tabId=typeof payload.tabId==='string' ? [...pages].find(([,p])=>p.publicId===payload.tabId)?.[0] : activeTab;
       const page=tabId&&pages.get(tabId);if(!page || page.owner!==currentSession)throw new Error('此会话没有可读取的网页标签');
       const wc=page.view.webContents,url=wc.getURL();
       if(wc.isDestroyed()||wc.isLoading()||page.state.error||!browserUrl(url))throw new Error('网页未加载完成或已失败，请先打开并等待加载');
       const ticket=randomUUID();readTickets.set(ticket,{tabId:tabId!,sessionId:currentSession,generation:page.generation,url,expires:Date.now()+300000});
-      return {ticket,tabId,title:wc.getTitle().slice(0,300),url:publicPageUrl(url)};
+      return {ticket,tabId:page.publicId,title:wc.getTitle().slice(0,300),url:publicPageUrl(url)};
     }
     if(operation!=='page.read'||typeof payload.ticket!=='string')throw new Error('不支持的网页操作');
     const ticket=readTickets.get(payload.ticket);readTickets.delete(payload.ticket);
@@ -110,7 +110,7 @@ export function createBrowser(window: BrowserWindow) {
     const result=await boundedRead(wc!.executeJavaScriptInIsolatedWorld(999,[{code:`(${extractPage.toString()})()`}]), AbortSignal.any([signal,AbortSignal.timeout(8000)]));
     signal.throwIfAborted();if(!unchanged())throw new Error('读取期间页面已改变，结果已丢弃');
     if(!result||typeof result.text!=='string'||result.text.length>24000||!Array.isArray(result.links))throw new Error('网页提取结果无效');
-    return {tabId:ticket.tabId,url:publicPageUrl(ticket.url),title:String(result.title).slice(0,300),text:result.text,links:result.links.slice(0,60),truncated:!!result.truncated};
+    return {tabId:page!.publicId,url:publicPageUrl(ticket.url),title:String(result.title).slice(0,300),text:result.text,links:result.links.slice(0,60),truncated:!!result.truncated};
   }
   return { command, dispose, pageOperation };
 }
