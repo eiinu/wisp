@@ -18,7 +18,7 @@ export function QuestionnaireForm({form,disabled=false,onSubmit}:{form:Questionn
  };
  if(sent)return <QuestionAnswers form={form} response={sent}/>;
  return <InteractionCard title={form.title} className="questionnaire"><p className="question-note">补充任务细节，不代表批准任何操作。请勿填写密码、API Key 或其他秘密；凭据请在设置中填写。</p>
- <form onSubmit={e=>{e.preventDefault();void submit({status:'answered',answers});}}>
+ <form onSubmit={e=>e.preventDefault()}>
  <div className="question-progress" role="status">第 {index+1} / {form.questions.length} 题 · 已填写 {answers.filter(a=>a.optionIds.length||a.text.trim()).length} 题</div>
  <h4 tabIndex={-1} ref={heading} id={`${uid}-title`}>{q.title} <small>{q.required?'必填':'可跳过'}{q.type==='multiple'?' · 可多选':''}</small></h4>
  <fieldset disabled={disabled||pending} aria-labelledby={`${uid}-title`}>
@@ -28,7 +28,7 @@ export function QuestionnaireForm({form,disabled=false,onSubmit}:{form:Questionn
  {q.type!=='text'&&!q.required&&<button type="button" onClick={()=>{setCustom(v=>v.filter(id=>id!==q.id));update({optionIds:[],text:''});}}>清除此题选择</button>}
  </fieldset>
  {error&&<p role="alert">{error}</p>}
- <div className="interaction-actions"><button type="button" disabled={disabled||pending} onClick={()=>void submit({status:'cancelled'})}>暂不回答</button><span className="question-pagination"><button type="button" disabled={pending||index===0} onClick={()=>navigate(index-1)}>上一题</button>{index<form.questions.length-1?<button type="button" disabled={pending} onClick={()=>navigate(index+1)}>下一题</button>:<button type="submit" className="primary" disabled={disabled||pending}>{pending?'正在提交…':'提交回答'}</button>}</span></div>
+ <div className="interaction-actions"><button type="button" disabled={disabled||pending} onClick={()=>void submit({status:'cancelled'})}>暂不回答</button><span className="question-pagination"><button type="button" disabled={pending||index===0} onClick={()=>navigate(index-1)}>上一题</button>{index<form.questions.length-1?<button key="next" type="button" disabled={pending} onClick={()=>navigate(index+1)}>下一题</button>:<button key="submit" type="button" className="primary" disabled={disabled||pending} onClick={()=>void submit({status:'answered',answers})}>{pending?'正在提交…':'提交回答'}</button>}</span></div>
  </form></InteractionCard>;
 }
 function QuestionAnswers({form,response}:{form:Questionnaire;response:QuestionResponse}){

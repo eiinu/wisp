@@ -26,3 +26,20 @@ it('keeps input after transport failure and disables disconnected submission',as
 it('binds UI replies to original ticket/run/session and shows terminal history without a submit control',async()=>{
  const event:RunEvent={version:1,id:'e',sessionId:'s',runId:'r',at:'',type:'question_requested',data:{ticket:'t',questionnaire:form}},request=vi.fn(async()=>({}));await act(()=>root.render(<RunQuestions events={[event,event]} ended={false} connected request={request}/>));expect(container.querySelectorAll('form')).toHaveLength(1);await click('暂不回答');expect(request).toHaveBeenCalledWith({type:'run.answer',sessionId:'s',runId:'r',ticket:'t',response:{status:'cancelled'}});await act(()=>root.render(<RunQuestions events={[event]} ended connected request={request}/>));expect(container.querySelector('button')).toBeNull();expect(container.textContent).toContain('不可继续提交');
 });
+it('requires a separate explicit submit activation after navigating to the last question',async()=>{
+ const submit=vi.fn(async()=>{});await act(()=>root.render(<QuestionnaireForm form={form} onSubmit={submit}/>));
+ await choose('摘要');await click('下一题');await choose('风险');
+ const next=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='下一题')!;
+ await act(()=>next.click());
+ expect(submit).not.toHaveBeenCalled();expect(container.querySelector('h4')?.textContent).toContain('补充说明');expect(container.querySelector('textarea')).not.toBeNull();
+ const send=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='提交回答')!;
+ expect(next.isConnected).toBe(false);expect(send).not.toBe(next);expect(send.type).toBe('button');
+ // Native form submission (including implicit Enter) is not the explicit answer action.
+ await act(()=>container.querySelector('form')!.requestSubmit());expect(submit).not.toHaveBeenCalled();
+ await act(()=>container.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true})));
+ expect(submit).not.toHaveBeenCalled();await type('最后一题仍可编辑\n第二行');await click('上一题');await choose('进度');await click('下一题');expect(submit).not.toHaveBeenCalled();expect(container.querySelector('textarea')!.value).toContain('第二行');
+ await click('提交回答');expect(submit).toHaveBeenCalledTimes(1);expect(submit.mock.calls[0]).toEqual([{status:'answered',answers:[{questionId:'a',optionIds:['one'],text:''},{questionId:'b',optionIds:['two','one'],text:''},{questionId:'c',optionIds:[],text:'最后一题仍可编辑\n第二行'}]}]);
+});
+it('does not validate or jump away from the last question during navigation with empty answers',async()=>{
+ const submit=vi.fn(async()=>{});await act(()=>root.render(<QuestionnaireForm form={form} onSubmit={submit}/>));await click('下一题');await click('下一题');expect(container.querySelector('h4')?.textContent).toContain('补充说明');expect(container.querySelector('[role=alert]')).toBeNull();expect(submit).not.toHaveBeenCalled();await click('上一题');expect(container.querySelector('h4')?.textContent).toContain('选择内容');
+});
