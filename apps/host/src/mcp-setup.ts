@@ -76,7 +76,7 @@ export class McpSetup {
    return {description:`信任并启动本机 MCP「${initial.name}」\n命令：${initial.command}\n参数：${JSON.stringify(initial.args)}\n目录：${initial.cwd??'用户主目录'}\n环境变量名称：${initial.envNames.join('、')||'无'}\n该程序可使用本机权限，不受项目目录沙箱约束；连接后发现工具，每次第三方工具调用仍需审批。`,execute:async signal=>{
     const current=this.record(initial.id);if(revision!==this.mcp.configurationRevision(initial.id)||fingerprint!==JSON.stringify([current.command,current.args,current.cwd,current.envNames,current.envStorage]))throw new Error('MCP 配置已变化，请重新确认');signal.throwIfAborted();
     const cancel=()=>{void this.mcp.disable(initial.id);};signal.addEventListener('abort',cancel,{once:true});
-    try{await this.mcp.activate(initial.id);signal.throwIfAborted();const result=this.record(initial.id);return JSON.stringify({id:initial.id,state:result.state,tools:result.tools.map(t=>({name:t.name,tool:t.remoteName})),message:'协议连接和工具发现完成；未调用第三方工具'});}finally{signal.removeEventListener('abort',cancel);}
+    try{await this.mcp.activate(initial.id);signal.throwIfAborted();const result=this.record(initial.id);return JSON.stringify({id:initial.id,state:result.state,tools:result.tools.map(t=>({name:t.name,tool:t.remoteName})),message:'协议连接和工具发现完成；新工具从下一次用户请求生效；未调用第三方工具'});}finally{signal.removeEventListener('abort',cancel);}
    }};
   })
  ];}

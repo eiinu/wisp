@@ -64,7 +64,7 @@ it('restricted runner drops inherited secrets, reports errors without stderr, an
  await expect(runSetup('/missing/no-npm',[],f.dir,signal())).rejects.toThrow('找不到');
  await expect(runSetup(process.execPath,['-e','setInterval(()=>{},100)'],f.dir,AbortSignal.timeout(50))).rejects.toThrow('取消或超时');
 });
-it('drives installation and activation through real DeepSeek HTTP/Host approvals, then calls discovered stdio and resumes the model',async()=>{
+it('drives installation and activation through real DeepSeek HTTP/Host approvals, then calls discovered stdio in a new run and resumes the model',async()=>{
  const {createServer}=await import('node:http');const {Runtime}=await import('../apps/host/src/runtime.js');
  const f=await setup();const received:any[]=[];
  const server=createServer(async(req,res)=>{
@@ -72,10 +72,11 @@ it('drives installation and activation through real DeepSeek HTTP/Host approvals
   const current=input.messages.slice(input.messages.findLastIndex((m:any)=>m.role==='user')),results=current.filter((m:any)=>m.role==='tool');
   let call:any;
   if(!results.some((m:any)=>String(m.content).includes('User denied')||String(m.content).includes('invalid_tool_request'))){
-   if(results.length===0)call={name:'mcp_list_services',args:{}};
+   if(current[0].content==='call activated fixture'&&results.length===0)call={name:input.tools.find((t:any)=>/^mcp_[a-f0-9]{32}_/.test(t.function.name)).function.name,args:{text:'setup-loop-fixture'}};
+   else if(current[0].content==='call activated fixture'){}
+   else if(results.length===0)call={name:'mcp_list_services',args:{}};
    else if(results.length===1)call={name:'mcp_install_npm',args:plan};
    else if(results.length===2)call={name:'mcp_activate_service',args:{id:JSON.parse(results[1].content).id}};
-   else if(results.length===3)call={name:JSON.parse(results[2].content).tools[0].name,args:{text:'setup-loop-fixture'}};
   }
   res.writeHead(200,{'content-type':'text/event-stream'});
   const delta=call?{tool_calls:[{index:0,id:`step-${results.length}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}:{content:`fixture finished: ${results.at(-1)?.content??''}`};
@@ -88,6 +89,7 @@ it('drives installation and activation through real DeepSeek HTTP/Host approvals
  await runtime.request({type:'run.start',sessionId:id,prompt:'fixture setup'});
  const consumed=new Set<string>();
  for(const expected of ['mcp_install_npm','mcp_activate_service','third-party']){
+  if(expected==='third-party'){await vi.waitFor(()=>expect(runtime.snapshot().sessions.find(s=>s.id===id)?.activeRunId).toBeUndefined(),{timeout:5000});await runtime.request({type:'run.start',sessionId:id,prompt:'call activated fixture'});}
   let pending:any;await vi.waitFor(()=>{pending=runtime.snapshot().events.findLast(e=>e.type==='approval_requested'&&!consumed.has(String(e.data.id))&&!runtime.snapshot().events.some(r=>r.type==='approval_resolved'&&r.runId===e.runId&&r.data.callId===e.data.id));expect(pending).toBeTruthy();},{timeout:5000});
   if(expected!=='third-party')expect(pending.data.name).toBe(expected);
   if(expected==='mcp_install_npm'){expect(f.calls).toHaveLength(0);expect(runtime.snapshot().mcpServers).toHaveLength(0);}
@@ -95,7 +97,7 @@ it('drives installation and activation through real DeepSeek HTTP/Host approvals
   consumed.add(String(pending.data.id));
   const approval={type:'run.approve' as const,sessionId:id,runId:pending.runId,callId:String(pending.data.id),allowed:true};await runtime.request(approval);await expect(runtime.request(approval)).rejects.toThrow();
  }
- await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.type==='completed')).toBe(true),{timeout:5000});
+ await vi.waitFor(()=>expect(runtime.snapshot().events.filter(e=>e.type==='completed')).toHaveLength(2),{timeout:5000});
  expect(runtime.snapshot().events.findLast(e=>e.type==='assistant')?.data.text).toContain('setup-loop-fixture');expect(f.calls).toHaveLength(3);
  expect(JSON.stringify(runtime.snapshot())).not.toContain('fake-test-key');expect(received[0].tools.some((t:any)=>t.function.name==='mcp_install_npm')).toBe(true);
  for(const cancel of [false,true]){

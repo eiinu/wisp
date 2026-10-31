@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Registry, type ModelProvider, type GenerationProvider, type Message, type RunEvent, type Tool } from '@wisp/core';
 import { asModelProvider } from './model.js';
 import { EventLog } from './log.js';
+import { snapshotTools } from './tool-introspection.js';
 export class Agent {
   private active?: { id: string; controller: AbortController };
   private pending?: { runId: string; callId: string; resolve: (value: boolean) => void };
@@ -37,10 +38,11 @@ export class Agent {
     const callIds = new Set<string>();
     const messages: Message[] = [...history, { role: 'user', text: prompt }];
     try {
+      const snapshot = snapshotTools(typeof this.tools === 'function' ? this.tools() : this.tools.values());
+      const availableTools = snapshot.tools;
       await emit('started', { prompt, maxSteps });
       for (let step = 0; step < maxSteps; step++) {
         signal.throwIfAborted();
-        const availableTools = typeof this.tools === 'function' ? this.tools() : this.tools.values();
         let chunks = Promise.resolve();
         let buffered = '';
         const stream = (text: string) => {
@@ -52,7 +54,7 @@ export class Agent {
         };
         const generate = async () => {
           let message: Message | undefined, thinking = false;
-          for await (const event of asModelProvider(this.model).stream({ messages, tools: availableTools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema: structuredClone(inputSchema) })) }, { signal })) {
+          for await (const event of asModelProvider(this.model).stream({ messages, tools: snapshot.definitions() }, { signal })) {
             signal.throwIfAborted();
             if (event.type === 'reasoning_delta' && !thinking) { thinking = true; await emit('model_activity', { phase: 'thinking', step }); }
             if (event.type === 'text_delta') stream(event.delta);
