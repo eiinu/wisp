@@ -35,7 +35,7 @@ export async function startSimulator(key: string, port = 0, tickMs = 40) {
         readpage:{name:'list_preview_tabs',args:{}}
       };
       if(!result&&scenario==='mcp') {
-        const tool=input.tools?.find((tool:any)=>tool.function?.name?.startsWith('mcp_'));
+        const tool=input.tools?.find((tool:any)=>/^mcp_[0-9a-f]{32}_/.test(tool.function?.name??''));
         if(!tool)throw new Error('MCP fixture tool unavailable');
         frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:tool.function.name,arguments:JSON.stringify({text:'offline MCP result'})}}]});frame({},'tool_calls');
       } else if(!result&&basic[scenario]) {

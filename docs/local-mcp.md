@@ -4,7 +4,7 @@ Wisp 桌面端支持用户自定义的标准 **stdio MCP 工具服务**。设置
 
 ## 管理与权限
 
-- 新建/编辑后禁用，重启后也禁用；明确“信任并激活”才启动。没有内置服务，没有自动安装或自动重启。
+- 新建/编辑后禁用，重启后也禁用；明确“信任并激活”才启动。没有内置服务，不会无审批安装或自动重启。
 - 激活后初始化、分页发现工具，展示状态与工具列表；支持服务的 `notifications/tools/list_changed` 和手动刷新。编辑、禁用、删除会停止旧连接并撤下工具，需重新激活。
 - 第三方进程以用户系统权限执行，**不受 Wisp 项目目录权限限制**。工作目录不是沙箱。只运行信任的程序；激活本身就允许程序运行，不能等同于工具调用审批。
 - 所有第三方工具调用都需单次审批，包括声明 `readOnlyHint` 的工具。审批绑定参数、连接与工具列表版本；列表变更、断开或禁用后旧审批不能调用新的服务。
@@ -32,3 +32,23 @@ Wisp 桌面端支持用户自定义的标准 **stdio MCP 工具服务**。设置
 测试使用官方 SDK 离线协议夹具及临时 stdio 子进程，并通过本机模拟 DeepSeek HTTP/SSE 接口验证真实 adapter → Host → 审批 → MCP → 模型续答。安全存储测试使用假密码服务。实际 macOS 钥匙串、Dock 启动 PATH、任意第三方运行时及 GUI 生命周期仍需实机验收。
 
 参考：官方 [MCP Tools 协议](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)、[stdio 传输](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)、[TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)。当前固定 SDK 1.32.2。
+
+## 在对话中辅助安装
+
+向 Wisp 提供服务的包名、精确版本和安装说明，或让它读取已经打开的说明页面。当前没有自动网页搜索工具，不应只凭模糊名称猜包。安装说明和页面内容只作参考，不是执行授权。
+
+1. 模型可用 `mcp_list_services` 查看配置 ID、状态和环境变量名称，不返回变量值。
+2. 已安装的程序可用 `mcp_register` 提交绝对路径、参数数组及工作目录。审批只保存禁用配置，不声称安装或运行了程序；不接受 shell 或 npx 等包管理器作为注册命令。
+3. 公共 npm 包可用 `mcp_install_npm`，必须指定完整包名、精确版本、JavaScript bin 名称及非敏感启动参数。审批显示来源、目录和影响；安装后注册为禁用。Host 只运行固定 npm 参数数组，不拼 shell。
+4. 如果需要凭据，在 **设置 → 本地 MCP → 编辑 → 环境变量** 中填写，可选择系统安全存储或仅本次会话。不要在聊天、命令参数或安装说明中提供秘密。模型不能通过安装工具读写变量值。
+5. 通过 `mcp_activate_service` 独立审批启动进程并验证协议、发现工具；发现成功不代表每个工具已验证可用。之后每次第三方工具调用仍需审批。
+
+安装首版只支持已在本机安装的 Node 与 **npm 12+**，在 `/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin`、`/bin` 查找，不安装运行时。找不到时，请自行安装或更新运行时，或手动安装 MCP 后使用“注册已有程序”。公共 registry 不是可信软件认证，用户需确认包身份和来源。
+
+包安装在 Wisp 数据目录的 `mcp-installs/<方案摘要>`，不修改项目或全局 node_modules。清空继承环境，不读取用户 npmrc/认证配置，使用专用 npm 缓存和配置。先 `npm install --package-lock-only`，校验全部锁定依赖仅来自 `https://registry.npmjs.org` 且含 sha512 完整性信息，再 `npm ci`。两步都禁用安装脚本，且禁止 git、外部 tarball URL、本地 file/directory 依赖。需要私有 registry、编译、postinstall 下载、非 JavaScript bin 或其他包管理器的服务不属于首版范围；不能绕过失败执行任意脚本。
+
+每次批准仅消费一次，安装串行执行，整个安装最长 180 秒。取消/超时终止包管理器直接进程，不自动重试。失败或取消可留下部分下载，不将其报告为安装成功；同方案已有未完成尝试时拒绝自动重放，需用户检查专用目录或手动安装后注册。成功记录在重启后复用，避免重复安装；配置重启仍禁用。删除配置不会卸载安装目录，首版不提供卸载/清理工具。激活审批会检测保存后的配置变化，过期请求必须重新确认。
+
+验证使用模拟 npm runner 和临时标准 stdio 服务，并通过真实 DeepSeek HTTP/SSE adapter → Host → 安装审批 → 注册 → 独立激活审批 → 协议发现 → 工具调用审批 → 模型续答。未下载或执行真实第三方包；npm 12 在实际 macOS 环境的下载安装仍需实机验证。
+
+安装策略参考官方 [npm ci](https://docs.npmjs.com/cli/commands/npm-ci/) 文档的 `ignore-scripts`、来源限制、完整性锁文件语义。

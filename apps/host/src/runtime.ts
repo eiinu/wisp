@@ -15,6 +15,7 @@ import { StateStore } from './state.js';
 import { WorkspaceFiles } from './files.js';
 import { configuredProvider } from './pi.js';
 import { offlineProvider } from './offline.js';
+import { McpSetup, type SetupRunner } from './mcp-setup.js';
 import { LocalMcp, type McpTransportFactory } from './local-mcp.js';
 export class Runtime {
   readonly store: StateStore;
@@ -30,7 +31,8 @@ export class Runtime {
   private protectedKey = false;
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
   private mcp: LocalMcp;
-  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService) { this.store = new StateStore(resolve(directory)); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); }
+  private mcpSetup: McpSetup;
+  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}) { this.store = new StateStore(resolve(directory)); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); }
   async init() {
     await this.store.load(); await this.mcp.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
@@ -186,7 +188,7 @@ export class Runtime {
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
         const runKey = this.key, redactRun = (text: string) => this.mcp.redact(runKey ? text.split(runKey).join('[REDACTED]') : text);
-        const agent = new Agent(provider, () => [...tools.values(), ...this.mcp.tools()], this.log(session.id), event => {
+        const agent = new Agent(provider, () => [...tools.values(), ...this.mcpSetup.tools(), ...this.mcp.tools()], this.log(session.id), event => {
           if (event.type === 'started') session.activeRunId = event.runId;
           this.events.push(event); session.updatedAt = event.at; this.publish({ type: 'event', event });
         }, session.id, redactRun, Math.max(runKey.length, this.mcp.redactionLength), command.type === 'files.write' ? undefined : messages => conversation.save(messages, redactRun));
@@ -202,5 +204,5 @@ export class Runtime {
     }
     await this.store.save(); this.publish({ type: 'changed' }); return {};
   }
-  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await this.mcp.shutdown(); await Promise.allSettled([...this.tasks]); await this.store.save(); }
+  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await this.mcpSetup.shutdown(); await this.mcp.shutdown(); await Promise.allSettled([...this.tasks]); await this.store.save(); }
 }

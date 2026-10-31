@@ -26,6 +26,8 @@ export class LocalMcp {
   private locks = new Set<string>();
   private closing = new Set<Promise<void>>();
   private stopped = false;
+  private revisions = new Map<string,number>();
+  configurationRevision(id:string) {this.get(id);return this.revisions.get(id)??0;}
   constructor(private directory: string, private changed: () => void, private desktop?: DesktopService,
     private factory: McpTransportFactory = params => new StdioClientTransport(params), private timeout = 10000) {}
   async init() {
@@ -86,7 +88,7 @@ export class LocalMcp {
       const record:Stored={...parsed,id:key,envNames,envStorage};
       const before=this.records;this.records=old?this.records.map(item=>item.id===key?record:item):[...this.records,record];
       try{await this.persist();}catch{this.records=before;throw new Error('保存 MCP 配置失败；服务保持禁用，请重试');}
-      if(env!==undefined)this.envs.set(key,env);this.states.set(key,{state:'disabled'});return key;
+      this.revisions.set(key,(this.revisions.get(key)??0)+1);if(env!==undefined)this.envs.set(key,env);this.states.set(key,{state:'disabled'});return key;
     });
   }
   async delete(id:string) { return this.exclusive('config',async()=>{const record=this.get(id);if(this.locks.has(id))throw new Error('服务正在激活，请先禁用');await this.disable(id);if(record.envStorage==='secure')await this.secure('delete',id);this.envs.delete(id);const before=this.records;this.records=this.records.filter(item=>item.id!==id);try{await this.persist();}catch{this.records=before;throw new Error('删除 MCP 配置失败，请重试');}this.states.delete(id);}); }
