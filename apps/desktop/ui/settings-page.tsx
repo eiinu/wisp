@@ -46,7 +46,7 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
     try {
       await request({ type: 'model.save', config, rememberKey: remember && official && snapshot.credential?.storage === 'secure', ...(apiKey ? { apiKey } : {}) });
       saved.current = { config: { ...config }, remember }; setStatus('设置已保存');
-    } finally { setApiKey(''); }
+    } finally { setApiKey(current => current === apiKey ? '' : current); }
   };
   const back = () => { if (lock.current) return; if (dirty) setConfirmLeave(true); else onBack(); };
   useEffect(() => { page.current?.focus(); }, []);
@@ -69,7 +69,7 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
     };
     document.addEventListener('keydown', trap); return () => { document.removeEventListener('keydown', trap); if (previous.isConnected) previous.focus(); };
   }, [confirmLeave]);
-  const feedback = <div className="settings-feedback" aria-live="polite" aria-atomic="true">{pending ? <p role="status">正在处理，请稍候…</p> : error ? <p className="error" role="alert">{error}</p> : status ? <p role="status">{status}</p> : null}</div>;
+  const feedback = <div className="settings-feedback" aria-live="polite" aria-atomic="true">{pending ? <p role="status">正在处理，请稍候…</p> : error ? <p className="error" role="alert">{error}</p> : dirty ? <p role="status">有未保存的更改</p> : status ? <p role="status">{status}</p> : null}</div>;
   const browser = snapshot.browserSessions?.[sessionId ?? ''];
   return <main className="settings-page" ref={page} tabIndex={-1} aria-label="设置页面">
     <aside className="settings-navigation" inert={confirmLeave}>
@@ -96,7 +96,7 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
         </form>
       </section>
       <section hidden={section !== 'connection'}><h3>工作台</h3><div className="settings-group"><div className="settings-row"><span>本机服务<small>任务与文件访问在你的电脑上执行</small></span><strong>{connected ? '已连接' : '未连接'}</strong></div><div className="settings-row"><span>浏览器自动化<small>{browser?.message ?? '与手动浏览网页独立，需要本机配置'}</small></span><strong>{browser?.state === 'connected' ? '已连接' : '未连接'}</strong></div></div>
-        {!connected && (window.wisp ? <button className="settings-reconnect" disabled={pending} onClick={onRetry}>重新连接</button> : <form className="settings-connect" onSubmit={e => {e.preventDefault();void task(async()=>{await onConnect(token);setToken('');setStatus('本机服务已连接');});}}><p className="settings-note">在本机运行 pnpm web 后使用终端给出的链接。托管预览不能连接你电脑的 localhost；令牌仅存在内存。</p><label>同源 Host 连接令牌<input type="password" autoComplete="off" required value={token} onChange={e=>setToken(e.target.value)}/></label><button disabled={pending} className="primary">连接</button></form>)}
+        {!connected && (window.wisp ? <button className="settings-reconnect" disabled={pending} onClick={onRetry}>重新连接</button> : <form className="settings-connect" onSubmit={e => {e.preventDefault();void task(async()=>{await onConnect(token);setToken(current => current === token ? '' : current);setStatus('本机服务已连接');});}}><p className="settings-note">在本机运行 pnpm web 后使用终端给出的链接。托管预览不能连接你电脑的 localhost；令牌仅存在内存。</p><label>同源 Host 连接令牌<input type="password" autoComplete="off" required value={token} onChange={e=>setToken(e.target.value)}/></label><button disabled={pending} className="primary">连接</button></form>)}
         {feedback}
       </section>
     </div></div>

@@ -220,3 +220,19 @@ it('announces settings results beside actions and restores submit focus only if 
   const feedback=form.querySelector('.settings-feedback')!;expect(feedback.getAttribute('aria-live')).toBe('polite');expect(feedback.textContent).toContain('设置已保存');expect(feedback.nextElementSibling?.className).toBe('settings-actions');
  }
 });
+it('replaces saved feedback on new edits, preserves errors and does not erase a newer credential on async completion',async()=>{
+ const state=snapshot();state.config={provider:'deepseek',model:'test-model',baseUrl:'https://api.deepseek.com'};
+ const c=client(state);await act(()=>root.render(<App initialClient={c.bridge}/>));await click('设置');
+ const key=container.querySelector<HTMLInputElement>('.settings-page input[type=password]')!;
+ const editKey=async(value:string)=>act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(key,value);key.dispatchEvent(new Event('input',{bubbles:true}));});
+ const feedback=container.querySelector('.settings-feedback')!;
+ await click('保存设置');expect(feedback.textContent).toBe('设置已保存');
+ await editKey('fake-new-key');expect(feedback.textContent).toBe('有未保存的更改');
+ let finish!:(result:Result)=>void;c.request.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ await click('保存设置');
+ // Model a delayed completion after an external input update; ordinary user inputs are disabled while saving.
+ await editKey('fake-newer-key');await act(()=>finish({}));
+ expect(key.value).toBe('fake-newer-key');expect(feedback.textContent).toBe('有未保存的更改');
+ c.request.mockImplementationOnce(async()=>{throw new Error('test save failed');});await click('保存设置');
+ await editKey('fake-after-error');expect(feedback.textContent).toBe('test save failed');expect(feedback.querySelector('[role=alert]')).not.toBeNull();
+});
