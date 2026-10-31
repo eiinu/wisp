@@ -198,3 +198,10 @@ it('routes connection status to the same dedicated settings page without another
  expect(container.querySelector('.settings-navigation [aria-current=page]')?.textContent).toBe('本机连接');
  await click('返回工作台');expect(container.querySelector('.settings-page')).toBeNull();
 });
+it('groups settings actions while keeping cancel available when the Host is disconnected',async()=>{
+ await act(()=>root.render(<App/>));await click('设置');
+ const actions=container.querySelector('.settings-actions')!;
+ expect(Array.from(actions.querySelectorAll('button')).map(b=>b.textContent)).toEqual(['取消并返回','保存并查询模型','保存设置']);
+ const buttons=actions.querySelectorAll('button');expect(buttons[0].disabled).toBe(false);expect(buttons[1].disabled).toBe(true);expect(buttons[2].disabled).toBe(true);
+ await act(()=>buttons[0].click());expect(container.querySelector('.settings-page')).toBeNull();
+});

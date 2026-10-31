@@ -2,7 +2,7 @@
 .settings-navigation{padding:24px 16px;background:var(--surface-sidebar);border-right:1px solid var(--border-subtle);overflow:auto}
 .settings-back{display:flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:var(--text-sm);margin-bottom:24px}
 .settings-navigation h1{font-size:20px;font-weight:600;padding:0 12px;margin:0 0 20px}
-.settings-navigation nav{display:grid;gap:4px}.settings-navigation nav button{display:flex;align-items:center;gap:10px;text-align:left;padding:12px;border-radius:var(--radius-md)}
+.settings-navigation nav{display:grid;gap:4px}.settings-navigation nav button{display:flex;align-items:center;justify-content:flex-start;gap:10px;text-align:left;min-height:36px;padding:8px 12px;line-height:20px;border-radius:var(--radius-md)}
 .settings-navigation nav button[aria-current=page]{background:var(--selected);font-weight:550}
 .settings-scroll{overflow:auto;min-width:0;min-height:0}.settings-content{max-width:840px;margin:0 auto;padding:48px 32px 64px}
 .settings-content header{margin-bottom:32px}.settings-content h2{font-size:28px;line-height:1.25;font-weight:600;letter-spacing:-.5px;margin:0 0 12px}.settings-content header p{color:var(--text-muted);line-height:1.7;margin:0}
@@ -11,7 +11,7 @@
 .settings-row>span{flex:1;min-width:0;overflow-wrap:anywhere}.settings-row small{display:block;color:var(--text-muted);font-size:var(--text-sm);line-height:1.6;margin-top:6px;font-weight:400}
 .settings-row :is(input:not([type=checkbox]),select){width: min(48%,310px);min-width:0;font-size:var(--text-md);padding:9px 10px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface)}
 .settings-row input[type=checkbox]{flex-shrink:0}.settings-row strong{font-size:var(--text-sm);font-weight:500;color:var(--text-secondary);white-space:nowrap}.settings-row button{border:1px solid var(--border);font-size:var(--text-sm)}
-.settings-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:24px}.settings-actions button:not(.primary){border:1px solid var(--border)}.settings-cancel{margin-top:16px;color:var(--text-secondary)}
+.settings-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:24px}.settings-actions button:not(.primary){border:1px solid var(--border)}.settings-cancel{color:var(--text-secondary)}
 .settings-connect{margin-top:24px}.settings-connect label{display:grid;gap:8px}.settings-connect input{width:100%;min-width:0}.settings-connect button,.settings-reconnect{margin-top:16px}
 .settings-content [role=status]{font-size:var(--text-sm);color:var(--text-secondary);margin:16px 0}.settings-page .modal{font:var(--text-body)/var(--line-ui) var(--font-ui)}
 .qa-workbench .settings-page{height:100%;flex:1;min-height:0}

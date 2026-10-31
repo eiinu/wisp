@@ -19,3 +19,10 @@ it('keeps settings content bounded with responsive navigation and a single inset
  const defined=new Set([...tokens.matchAll(/(--[a-z-]+)\s*:/g)].map(m=>m[1]));for(const match of css.matchAll(/var\((--[a-z-]+)\)/g))expect(defined.has(match[1])).toBe(true);
  expect(css).toContain('grid-template-columns:240px minmax(0,1fr)');expect(css).toContain('max-width:840px');expect(css).toContain('@media(max-width:480px)');expect(css).toContain(':focus{border-color:var(--focus-border)}');expect(css).toContain('forced-colors:active');
 });
+
+it('keeps settings navigation compact and left aligned, and groups footer actions with wrapping',()=>{
+ const css=readFileSync('apps/desktop/ui/settings-page.css','utf8');
+ expect(css).toContain('justify-content:flex-start;gap:10px;text-align:left;min-height:36px;padding:8px 12px;line-height:20px');
+ expect(css).toContain('.settings-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;');
+ expect(css).not.toContain('.settings-cancel{margin-top:');
+});
