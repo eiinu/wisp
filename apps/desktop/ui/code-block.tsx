@@ -25,5 +25,5 @@ export function CodeBlock({ text, language = '' }: { text: string; language?: st
   }, [language, text]);
   return <div className="code-block"><div className="code-toolbar"><span>{language || '文本'}</span><button onClick={() => {
     const value = text; setError(false); void copyText(value, window.wisp).then(() => { if (latest.current === value) setCopiedText(value); }).catch(() => setError(true));
-  }}>{copiedText === text ? '已复制' : '复制代码'}</button></div><pre tabIndex={0} aria-label="代码，可横向滚动"><code className={language ? `hljs language-${language}` : undefined}>{content}</code></pre>{error && <span role="alert">复制失败，请手动选择代码。</span>}</div>;
+  }}><WorkspaceIcon name={copiedText === text ? 'check' : 'copy'}/>{copiedText === text ? '已复制' : '复制代码'}</button></div><pre tabIndex={0} aria-label="代码，可横向滚动"><code className={language ? `hljs language-${language}` : undefined}>{content}</code></pre>{error && <span role="alert">复制失败，请手动选择代码。</span>}</div>;
 }
