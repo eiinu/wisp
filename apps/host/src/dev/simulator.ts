@@ -32,10 +32,13 @@ export async function startSimulator(key: string, port = 0, tickMs = 40) {
         mkdir:{name:'files_mkdir',args:{path:'new-folder'}},
         move:{name:'files_move',args:{path:'README.md',destination:'new-folder/renamed.md'}},
         trash:{name:'files_trash',args:{path:'new-folder/renamed.md'}},
-        readpage:{name:'read_webpage',args:{}}
+        readpage:{name:'list_preview_tabs',args:{}}
       };
       if(!result&&basic[scenario]) {
         const call=basic[scenario];frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]});frame({},'tool_calls');
+      } else if(scenario==='readpage'&&result&&current.filter((m:any)=>m.role==='tool').length===1&&result.content.startsWith('{')&&JSON.parse(result.content).tabs?.some((t:any)=>t.kind==='web')) {
+        const tabs=JSON.parse(result.content).tabs,tab=tabs.find((t:any)=>t.kind==='web'&&!t.active)??tabs.find((t:any)=>t.kind==='web');
+        frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:'read_webpage',arguments:JSON.stringify({tabId:tab.tabId})}}]});frame({},'tool_calls');
       } else if (!result && scenario === 'openweb') {
         frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:'open_webpage',arguments:JSON.stringify({url:'https://example.com/'})}}]});frame({},'tool_calls');
       } else if (scenario === 'loop' || (!result && ['multi', 'escape', 'invalid'].includes(scenario))) {

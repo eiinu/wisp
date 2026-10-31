@@ -90,11 +90,13 @@ export function createBrowser(window: BrowserWindow) {
   window.once('close', dispose);
   async function pageOperation(operation:string,payload:Record<string,unknown>,signal:AbortSignal) {
     signal.throwIfAborted(); if(disposed || !currentSession || payload.sessionId!==currentSession) throw new Error('网页不属于当前会话');
+    if(operation==='page.list')return {pages:[...pages.entries()].filter(([,p])=>p.owner===currentSession).map(([id,p])=>({id,ref:p.publicId,version:p.generation,title:p.view.webContents.getTitle().slice(0,300),url:publicPageUrl(p.view.webContents.getURL()||p.state.url),loading:p.view.webContents.isLoading(),error:!!p.state.error}))};
     if(operation==='page.prepare') {
       for(const [id,t] of readTickets) if(t.expires<Date.now())readTickets.delete(id);
       if(readTickets.size>=32)throw new Error('待审批读取过多，请稍后重试');
-      const tabId=typeof payload.tabId==='string' ? [...pages].find(([,p])=>p.publicId===payload.tabId)?.[0] : activeTab;
+      const tabId=typeof payload.tabId==='string' ? [...pages].find(([,p])=>p.publicId===payload.tabId)?.[0] : undefined;
       const page=tabId&&pages.get(tabId);if(!page || page.owner!==currentSession)throw new Error('此会话没有可读取的网页标签');
+      if(payload.version!==page.generation)throw new Error('页面导航已改变，请重新获取标签列表');
       const wc=page.view.webContents,url=wc.getURL();
       if(wc.isDestroyed()||wc.isLoading()||page.state.error||!browserUrl(url))throw new Error('网页未加载完成或已失败，请先打开并等待加载');
       const ticket=randomUUID();readTickets.set(ticket,{tabId:tabId!,sessionId:currentSession,generation:page.generation,url,expires:Date.now()+300000});

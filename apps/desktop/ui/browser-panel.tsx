@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, type Dispatch } from 'react';
-import type { Request, Result } from '@wisp/core';
+import type { Request, Result, PreviewTabMetadata } from '@wisp/core';
 import type { BrowserBridge, BrowserSnapshot } from '../shared/browser.js';
 import { WorkspaceIcon } from './workspace-icon.js';
 import { FilePanel } from './file-panel.js';
 import { useLinkConfirmation } from './link-confirmation.js';
 import { safeWebUrl, type PreviewAction, type PreviewState, type PreviewTarget, type PreviewTab } from './preview-model.js';
 
-export function BrowserPanel({ state, dispatch, visible, blocked, close, sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
+export function BrowserPanel({ registerTabs, state, dispatch, visible, blocked, close, sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
+  registerTabs?(read:()=>PreviewTabMetadata[]):void;
   state: PreviewState; dispatch: Dispatch<PreviewAction>; visible: boolean; blocked: boolean; close(): void;
   sessionId?: string; workspace?: string; inheritedWorkspace?: boolean; connected: boolean; active: boolean; request(request: Request): Promise<Result>; chooseWorkspace(): void; browser?: BrowserBridge;
 }) {
@@ -64,6 +65,7 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
   }
   const open = (target: PreviewTarget | {kind: 'workspace'}) => dispatch({ type: 'open', target });
   const tabTitle = (item: PreviewTab) => native.pages.find(p => p.id === item.id)?.title || (item.kind === 'web' && fallback[item.id]?.url ? new URL(fallback[item.id].url).hostname : item.title);
+  useLayoutEffect(()=>{registerTabs?.(()=>state.tabs.map(item=>{const p=native.pages.find(p=>p.id===item.id),url=item.kind==='web'?(p?.url??fallback[item.id]?.url??item.url):undefined;return {id:item.id,kind:item.kind==='web'&&!url?'new':item.kind,title:tabTitle(item).slice(0,300),active:item.id===state.activeId,...(item.kind==='file'?{path:item.path}:{}),...(url?{url}:{}),revision:item.kind==='web'?(fallback[item.id]?.revision??item.revision??0):0};}));return()=>registerTabs?.(()=>[]);},[registerTabs,state,native,fallback,sessionId]);
   const fileProps = { sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace };
   return <aside className="inspector browser-inspector" hidden={!visible} aria-label="浏览工作区">
 

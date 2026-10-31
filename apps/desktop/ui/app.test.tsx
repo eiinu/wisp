@@ -236,3 +236,11 @@ it('replaces saved feedback on new edits, preserves errors and does not erase a 
  c.request.mockImplementationOnce(async()=>{throw new Error('test save failed');});await click('保存设置');
  await editKey('fake-after-error');expect(feedback.textContent).toBe('test save failed');expect(feedback.querySelector('[role=alert]')).not.toBeNull();
 });
+
+it('keeps preview tabs session-local and lists only the selected conversation in live requests',async()=>{
+ const c=client();await act(()=>root.render(<App initialClient={c.bridge}/>));await click('打开一个网页');
+ const listed=async(ticket:string)=>{await act(()=>c.emit({type:'preview.tabs',sessionId:ticket==='one-again'?'one':ticket,ticket}));return c.request.mock.calls.map(([r])=>r).findLast(r=>r.type==='preview.tabs.complete') as Extract<Request,{type:'preview.tabs.complete'}>;};
+ const first=await listed('one');expect(first.tabs).toHaveLength(1);expect(first.tabs[0].kind).toBe('new');
+ await click('会话 two');const second=await listed('two');expect(second.tabs).toHaveLength(0);
+ await click('会话 one');const restored=await listed('one-again');expect(restored.tabs.map(t=>t.id)).toEqual(first.tabs.map(t=>t.id));
+});

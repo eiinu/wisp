@@ -49,3 +49,12 @@ it('keeps new-tab outside the scroll strip and reveals selected tabs in either d
  expect(dispatch).toHaveBeenLastCalledWith({type:'select',id:'last'});
  expect(document.activeElement?.textContent).toBe('Last');
 });
+
+it('reports all visible tab types and live Web address changes through the metadata reader',async()=>{
+ let read:()=>any[]=()=>[];const props={state:{tabs:[{kind:'workspace' as const,id:'root',title:'Directory'},{kind:'file' as const,id:'file',title:'Note',sessionId:'s',workspace:'/work',path:'note.md'},{kind:'web' as const,id:'new',url:'',title:'New'}],activeId:'new'},dispatch:vi.fn(),visible:true,blocked:false,sessionId:'s',close:vi.fn(),connected:false,active:false,request:vi.fn(async()=>({})),chooseWorkspace:vi.fn(),registerTabs:(reader:()=>any[])=>{read=reader;}};
+ await act(()=>root.render(<BrowserPanel {...props}/>));expect(read().map(t=>t.kind)).toEqual(['workspace','file','new']);expect(read()[1].path).toBe('note.md');expect(read()[2].active).toBe(true);
+ const address=container.querySelector<HTMLInputElement>('[aria-label=地址栏]')!;
+ await act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(address,'https://example.org/article');address.dispatchEvent(new Event('input',{bubbles:true}));});
+ await act(()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(read()[2]).toMatchObject({kind:'web',url:'https://example.org/article',revision:1});
+});

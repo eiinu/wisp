@@ -2,7 +2,7 @@ import React from 'react';
 import { Markdown } from './markdown.js';
 import { groupExecution } from './tool-groups.js';
 import type { RunEvent } from '@wisp/core';
-const names: Record<string, string> = { files_mkdir: '创建文件夹', files_move: '移动 / 重命名', files_trash: '移入废纸篓', read_webpage: '读取网页正文', files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
+const names: Record<string, string> = { files_mkdir: '创建文件夹', files_move: '移动 / 重命名', files_trash: '移入废纸篓', list_preview_tabs:'列出预览标签',read_webpage: '读取网页正文', files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
 /** Only presentation: preview still uses the current session's Host authorization. */
 export function ToolActivity({ events, ended, canPreview, previewUnavailableReason, openFile }: { events: RunEvent[]; ended: boolean; canPreview: boolean; previewUnavailableReason?: string; openFile(path: string): void }) {
   const {process} = groupExecution(events);

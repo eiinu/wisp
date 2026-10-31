@@ -1,3 +1,4 @@
+import { PreviewTabs } from './preview-tabs.js';
 import { pageReadTool } from './page-tool.js';
 import type { DesktopService } from './desktop-service.js';
 import { officialDeepSeek, type CredentialVault } from './credentials.js';
@@ -19,6 +20,7 @@ export class Runtime {
   readonly store: StateStore;
   private events: RunEvent[] = [];
   private previews = new PreviewRequests(notice => this.publish(notice), () => this.store.state.selectedId);
+  private tabs:PreviewTabs;
   private agents = new Map<string, Agent>();
   private busy = new Set<string>();
   private tasks = new Set<Promise<void>>();
@@ -28,7 +30,7 @@ export class Runtime {
   private protectedKey = false;
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
   private browsers = new Map<string, BrowserSession>();
-  constructor(directory: string, private browserFactory?: BrowserTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService) { this.store = new StateStore(resolve(directory)); }
+  constructor(directory: string, private browserFactory?: BrowserTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService) { this.store = new StateStore(resolve(directory)); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); }
   async init() {
     await this.store.load();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
@@ -142,6 +144,8 @@ export class Runtime {
       await this.browsers.get(session.id)?.disconnect();
       return { snapshot: this.snapshot() };
     }
+    if(command.type==='preview.tabs.claim'){this.tabs.claim(session.id,command.ticket);return{};}
+    if(command.type==='preview.tabs.complete'){this.tabs.complete(session.id,command.ticket,command.tabs);return{};}
     if (command.type === 'preview.claim') return {preview:this.previews.claim(session.id,command.ticket)};
     if (command.type === 'preview.complete') { this.previews.complete(session.id,command.ticket,command.accepted);return {}; }
     if (command.type === 'session.select') this.store.state.selectedId = session.id;
@@ -176,7 +180,7 @@ export class Runtime {
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
-        const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
+        const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
         for (const tool of this.browsers.get(session.id)?.tools() ?? []) tools.register(tool.name, tool);
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));

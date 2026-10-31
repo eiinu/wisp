@@ -13,6 +13,7 @@ beforeEach(() => {
     const view = { webContents: wc, options, setVisible: vi.fn(), setBounds: vi.fn() }; mocks.views.push(view); return view;
   });
 });
+async function listed(controller:ReturnType<typeof createBrowser>,sessionId='s',id='a'){const result=await controller.pageOperation('page.list',{sessionId},new AbortController().signal) as any;const page=result.pages.find((p:any)=>p.id===id);return {sessionId,tabId:page?.ref,version:page?.version};}
 function setup() {
   const window = Object.assign(new EventEmitter(), { contentView: { addChildView: vi.fn(), removeChildView: vi.fn() }, webContents: { send: vi.fn() }, isDestroyed: () => false, getContentSize: () => [1000, 700] });
   return { window, controller: createBrowser(window as any) };
@@ -50,22 +51,35 @@ it('page read binds session, tab and navigation version, consumes approval once 
  const {controller}=setup();controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://example.com'});
  const wc=mocks.views[0].webContents;wc.executeJavaScriptInIsolatedWorld=vi.fn(async()=>({title:'Article',text:'visible article',links:[],truncated:false}));
  const signal=new AbortController().signal;
- const p=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);expect(p).toMatchObject({url:'https://example.com/redirected'});expect(wc.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+ const p=await controller.pageOperation('page.prepare',await listed(controller),signal);expect(p).toMatchObject({url:'https://example.com/redirected'});expect(wc.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
  expect(await controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).toMatchObject({text:'visible article'});
  await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).rejects.toThrow('过期');
- const stale=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);wc.emit('did-start-navigation',{},'https://example.com/changed',false,true);
+ const stale=await controller.pageOperation('page.prepare',await listed(controller),signal);wc.emit('did-start-navigation',{},'https://example.com/changed',false,true);
  await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:stale.ticket},signal)).rejects.toThrow('改变');
- const switched=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);controller.command({type:'context',sessionId:'other',id:'a'});
+ const switched=await controller.pageOperation('page.prepare',await listed(controller),signal);controller.command({type:'context',sessionId:'other',id:'a'});
  await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:switched.ticket},signal)).rejects.toThrow('当前会话');
  await expect(controller.pageOperation('page.prepare',{sessionId:'other',tabId:'a'},signal)).rejects.toThrow('没有');
  controller.command({type:'context',sessionId:'s',id:'a'});wc.isLoading=()=>true;
- await expect(controller.pageOperation('page.prepare',{sessionId:'s'},signal)).rejects.toThrow('未加载');controller.dispose();
+ await expect(controller.pageOperation('page.prepare',await listed(controller),signal)).rejects.toThrow('未加载');controller.dispose();
 });
 it('discards page results on navigation during extraction or cancellation',async()=>{
  const {controller}=setup();controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://example.com'});
  const wc=mocks.views[0].webContents,signal=new AbortController().signal;
  wc.executeJavaScriptInIsolatedWorld=vi.fn(async()=>{wc.emit('did-start-navigation',{},'',false,true);return {text:'wrong page',links:[]};});
- const p=await controller.pageOperation('page.prepare',{sessionId:'s'},signal);await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).rejects.toThrow('结果已丢弃');
- const q=await controller.pageOperation('page.prepare',{sessionId:'s'},signal),cancel=new AbortController();wc.executeJavaScriptInIsolatedWorld=vi.fn(()=>new Promise(()=>{}));
+ const p=await controller.pageOperation('page.prepare',await listed(controller),signal);await expect(controller.pageOperation('page.read',{sessionId:'s',ticket:p.ticket},signal)).rejects.toThrow('结果已丢弃');
+ const q=await controller.pageOperation('page.prepare',await listed(controller),signal),cancel=new AbortController();wc.executeJavaScriptInIsolatedWorld=vi.fn(()=>new Promise(()=>{}));
  const reading=controller.pageOperation('page.read',{sessionId:'s',ticket:q.ticket},cancel.signal);cancel.abort();await expect(reading).rejects.toThrow();controller.dispose();
+});
+it('lists only owned native pages and reads an explicitly listed nonactive page; stale list and close fail',async()=>{
+ const {controller}=setup(),signal=new AbortController().signal;
+ controller.command({type:'context',sessionId:'s',id:'a'});controller.command({type:'open',id:'a',url:'https://a.test/'});controller.command({type:'open',id:'b',url:'https://b.test/'});
+ mocks.views[0].webContents.getURL.mockReturnValue('https://a.test/?token=secret');mocks.views[1].webContents.getURL.mockReturnValue('https://b.test/');
+ mocks.views[0].webContents.executeJavaScriptInIsolatedWorld=vi.fn();mocks.views[1].webContents.executeJavaScriptInIsolatedWorld=vi.fn(async()=>({title:'B',text:'B article',links:[]}));
+ const list=await controller.pageOperation('page.list',{sessionId:'s'},signal) as any;expect(list.pages).toHaveLength(2);expect(JSON.stringify(list)).not.toContain('secret');
+ await expect(controller.pageOperation('page.prepare',{sessionId:'s'},signal)).rejects.toThrow('没有');
+ const b=await listed(controller,'s','b'),approval=await controller.pageOperation('page.prepare',b,signal);
+ expect(await controller.pageOperation('page.read',{sessionId:'s',ticket:(approval as any).ticket},signal)).toMatchObject({text:'B article'});expect(mocks.views[0].webContents.executeJavaScriptInIsolatedWorld).not.toHaveBeenCalled();
+ mocks.views[1].webContents.emit('did-start-navigation',{},'https://b.test/new',false,true);await expect(controller.pageOperation('page.prepare',b,signal)).rejects.toThrow('重新获取');
+ controller.command({type:'close',id:'b'});await expect(controller.pageOperation('page.prepare',b,signal)).rejects.toThrow('没有');
+ controller.command({type:'context',sessionId:'other'});expect(await controller.pageOperation('page.list',{sessionId:'other'},signal)).toEqual({pages:[]});controller.dispose();
 });

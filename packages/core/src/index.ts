@@ -26,8 +26,12 @@ export const modelConfigSchema = z.object({
 });
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 const sid = z.string().uuid();
+export const previewTabSchema = z.object({ id:z.string().min(1).max(4096), kind:z.enum(['web','file','new','workspace']), title:z.string().max(300), active:z.boolean(), url:z.string().max(8192).optional(), path:z.string().max(4096).optional(), revision:z.number().int().nonnegative().optional() }).strict();
+export type PreviewTabMetadata = z.infer<typeof previewTabSchema>;
 export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshot') }),
+  z.object({ type:z.literal('preview.tabs.claim'), sessionId:sid, ticket:sid }).strict(),
+  z.object({ type:z.literal('preview.tabs.complete'), sessionId:sid, ticket:sid, tabs:z.array(previewTabSchema).max(12) }).strict(),
   z.object({ type: z.literal('preview.claim'), sessionId: sid, ticket: sid }).strict(),
   z.object({ type: z.literal('preview.complete'), sessionId: sid, ticket: sid, accepted: z.boolean() }).strict(),
   z.object({ type: z.literal('browser.connect'), sessionId: sid, confirmed: z.literal(true) }),
@@ -62,7 +66,7 @@ export interface FileEntry { name: string; path: string; kind: 'directory' | 'fi
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
 export interface Result { preview?: { ticket: string; url: string }; projectId?: string; models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
 export type PreviewNotice = { type: 'preview.open'; sessionId: string; ticket: string };
-export type Notice = PreviewNotice | { type: 'event'; event: RunEvent } | { type: 'changed' } | { type: 'disconnected'; message: string };
+export type Notice = PreviewNotice | { type:'preview.tabs'; sessionId:string; ticket:string } | { type: 'event'; event: RunEvent } | { type: 'changed' } | { type: 'disconnected'; message: string };
 export interface WorkbenchBridge { request(request: Request): Promise<Result>; subscribe(listener: (notice: Notice) => void): () => void }
 
 // Provider-neutral contract. Private continuation never belongs in RunEvent or Renderer state.
