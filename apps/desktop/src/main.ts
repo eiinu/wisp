@@ -1,3 +1,4 @@
+import { createBrowser } from './browser.js';
 import { credentialVault } from './credential-vault.js';
 import { app, BrowserWindow, ipcMain, session, dialog, shell, safeStorage, clipboard } from 'electron';
 import { fork } from 'node:child_process';
@@ -16,6 +17,8 @@ async function startDesktop() {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   function trusted(event: Electron.IpcMainInvokeEvent) { if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== uiUrl) throw new Error('Untrusted sender'); }
+  let browser: ReturnType<typeof createBrowser> | undefined;
+  ipcMain.handle('wisp:browser', (event, input) => { trusted(event); browser ??= createBrowser(window); return browser.command(input); });
   ipcMain.handle('wisp:request', (event, input: unknown) => {
     trusted(event); if (!host.connected) throw new Error('Local Host unavailable');
     const request = requestSchema.parse(input), id = randomUUID();
