@@ -34,6 +34,8 @@ export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.create'), name: z.string().trim().min(1).max(100).optional(), path: z.string().min(1).max(4096), confirmed: z.literal(true) }).strict(),
   z.object({ type: z.literal('project.rename'), projectId: sid, name: z.string().trim().min(1).max(100) }).strict(),
   z.object({ type: z.literal('project.collapse'), projectId: sid, collapsed: z.boolean() }).strict(),
+  z.object({ type: z.literal('session.archive'), sessionId: sid }).strict(),
+  z.object({ type: z.literal('session.restore'), sessionId: sid }).strict(),
   z.object({ type: z.literal('session.rename'), sessionId: sid, title: z.string().trim().min(1).max(100) }),
   z.object({ type: z.literal('session.select'), sessionId: sid }),
   z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().min(1).max(16000), maxSteps: z.number().int().min(1).max(20).default(8) }),
@@ -51,7 +53,7 @@ export const requestSchema = z.discriminatedUnion('type', [
 ]);
 export type Request = z.infer<typeof requestSchema>;
 export interface ProjectInfo { id: string; name: string; workspace: string; collapsed: boolean; createdAt: string }
-export interface SessionInfo { projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
+export interface SessionInfo { archivedAt?: string; projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
 export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' | 'failed'; toolCount: number; message?: string }
 export interface Snapshot { projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }

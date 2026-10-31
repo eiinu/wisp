@@ -90,3 +90,45 @@ it('does not advertise a session as idle until its final checkpoint has finished
   await runtime.store.save();
  }finally{release();spy.mockRestore();unsubscribe();}
 });
+it('archives without deleting history or scope, persists and restores within the original project',async()=>{
+ const {runtime,directory,pa,sa,sb,a}=await setup();
+ const other=(await runtime.request({type:'session.create',projectId:pa})).sessionId!;
+ await runtime.request({type:'model.save',config:{provider:'offline',model:'test',baseUrl:''}});
+ await runtime.request({type:'run.start',sessionId:sa,prompt:'hello'});
+ await vi.waitFor(()=>{expect(runtime.snapshot().events.some(e=>e.type==='completed')).toBe(true);expect(runtime.snapshot().sessions.find(s=>s.id===sa)?.activeRunId).toBeUndefined();});
+ const history=runtime.snapshot().events.filter(e=>e.sessionId===sa);
+ await runtime.request({type:'session.select',sessionId:sa});
+ await runtime.request({type:'session.archive',sessionId:sa});
+ expect(runtime.snapshot().selectedId).toBe(other);
+ const timestamp=runtime.snapshot().sessions.find(s=>s.id===sa)?.archivedAt;
+ await runtime.request({type:'session.archive',sessionId:sa});expect(runtime.snapshot().sessions.find(s=>s.id===sa)?.archivedAt).toBe(timestamp);
+ for(const type of ['session.select','run.start','files.read'])await expect(runtime.request({type,sessionId:sa,path:'same.txt',prompt:'hello'})).rejects.toThrow('归档');
+ await expect(runtime.request({type:'session.restore',sessionId:sa,projectId:runtime.snapshot().sessions.find(s=>s.id===sb)?.projectId})).rejects.toThrow('格式');
+ const restart=new Runtime(directory);await restart.init();cleanup.push(()=>restart.shutdown());
+ expect(restart.snapshot().events.filter(e=>e.sessionId===sa)).toEqual(history);
+ expect(restart.snapshot().sessions.find(s=>s.id===sa)).toMatchObject({archivedAt:timestamp,projectId:pa,workspace:a});
+ await restart.request({type:'project.collapse',projectId:pa,collapsed:true});
+ await restart.request({type:'session.restore',sessionId:sa});
+ expect(restart.snapshot().sessions.find(s=>s.id===sa)?.archivedAt).toBeUndefined();
+ expect(restart.snapshot().projects?.find(p=>p.id===pa)?.collapsed).toBe(false);
+ expect((await restart.request({type:'files.read',sessionId:sa,path:'same.txt'})).file?.text).toBe('A');
+ await restart.request({type:'session.select',sessionId:sb});await restart.request({type:'session.archive',sessionId:sb});
+ expect(restart.snapshot().selectedId).toBeUndefined(); // no cross-project fallback
+ const independent=(await restart.request({type:'session.create'})).sessionId!;
+ await restart.request({type:'session.archive',sessionId:independent});expect(restart.snapshot().selectedId).toBeUndefined();
+ await restart.request({type:'session.restore',sessionId:independent});expect(restart.snapshot().sessions.find(s=>s.id===independent)?.projectId).toBeUndefined();
+});
+it('refuses archive while waiting for write approval and restored writes still require approval',async()=>{
+ const {runtime,sa,a}=await setup();
+ await runtime.request({type:'session.archive',sessionId:sa});await runtime.request({type:'session.restore',sessionId:sa});
+ await runtime.request({type:'files.write',sessionId:sa,path:'pending.txt',content:'secret test'});
+ await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.type==='approval_requested')).toBe(true));
+ await expect(runtime.request({type:'session.archive',sessionId:sa})).rejects.toThrow('执行');
+ expect(runtime.snapshot().sessions.find(s=>s.id===sa)?.archivedAt).toBeUndefined();
+ await expect(readFile(join(a,'pending.txt'))).rejects.toThrow();
+ const event=runtime.snapshot().events.find(e=>e.type==='approval_requested')!;
+ await runtime.request({type:'run.approve',sessionId:sa,runId:event.runId,callId:event.data.id,allowed:false});
+ await vi.waitFor(()=>expect(runtime.snapshot().sessions.find(s=>s.id===sa)?.activeRunId).toBeUndefined());
+ await runtime.request({type:'session.archive',sessionId:sa});expect(runtime.snapshot().sessions.find(s=>s.id===sa)?.archivedAt).toBeTruthy();
+ await expect(readFile(join(a,'pending.txt'))).rejects.toThrow();
+});

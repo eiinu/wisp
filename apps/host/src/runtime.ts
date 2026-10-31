@@ -113,6 +113,18 @@ export class Runtime {
       } finally { this.keyChanging = false; this.publish({ type: 'changed' }); }
     }
     const session = this.session(command.sessionId);
+    if (command.type === 'session.archive' || command.type === 'session.restore') {
+      this.idle(session.id);
+      if (command.type === 'session.archive') {
+        session.archivedAt ??= new Date().toISOString();
+        if (this.store.state.selectedId === session.id) this.store.state.selectedId = this.store.state.sessions.find(s => !s.archivedAt && s.projectId === session.projectId)?.id;
+      } else {
+        delete session.archivedAt;
+        if (session.projectId) this.project(session.projectId).collapsed = false;
+      }
+      await this.store.save(); this.publish({type: 'changed'}); return {};
+    }
+    if (session.archivedAt) throw new Error('此对话已归档，请先恢复后再操作');
     if (command.type === 'browser.connect') {
       this.idle(session.id); this.busy.add(session.id);
       let browser = this.browsers.get(session.id);
@@ -129,7 +141,7 @@ export class Runtime {
     else if (command.type === 'session.rename') session.title = command.title;
     else if (command.type === 'workspace.grant') {
       if (session.projectId) throw new Error('项目会话继承项目目录，不能单独更改授权');
-      this.idle(session.id); const workspace = await WorkspaceFiles.grant(command.path, this.store.directory); this.idle(session.id); session.workspace = workspace.root;
+      this.idle(session.id); const workspace = await WorkspaceFiles.grant(command.path, this.store.directory); this.idle(session.id); if (session.archivedAt) throw new Error('此对话已归档，请先恢复后再操作'); session.workspace = workspace.root;
     } else if (command.type === 'workspace.revoke') { if (session.projectId) throw new Error('项目会话继承项目目录，不能单独撤销授权'); this.idle(session.id); delete session.workspace; }
     else if (command.type === 'files.list') return { entries: await (await this.workspace(session)).list(command.path) };
     else if (command.type === 'files.read') return { file: await (await this.workspace(session)).read(command.path) };
