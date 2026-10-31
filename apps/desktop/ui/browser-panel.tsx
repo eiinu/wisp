@@ -3,7 +3,7 @@ import type { Request, Result } from '@wisp/core';
 import type { BrowserBridge, BrowserSnapshot } from '../shared/browser.js';
 import { FilePanel } from './file-panel.js';
 import { useLinkConfirmation } from './link-confirmation.js';
-import { safeWebUrl, type PreviewAction, type PreviewState, type PreviewTarget } from './preview-model.js';
+import { safeWebUrl, type PreviewAction, type PreviewState, type PreviewTarget, type PreviewTab } from './preview-model.js';
 
 export function BrowserPanel({ state, dispatch, visible, blocked, close, sessionId, workspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
   state: PreviewState; dispatch: Dispatch<PreviewAction>; visible: boolean; blocked: boolean; close(): void;
@@ -44,6 +44,7 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
     else setFallback(previous => ({ ...previous, [tab.id]: { url, revision: (previous[tab.id]?.revision ?? 0) + 1, loaded: false } }));
   }
   const open = (target: PreviewTarget | {kind: 'workspace'}) => dispatch({ type: 'open', target });
+  const tabTitle = (item: PreviewTab) => native.pages.find(p => p.id === item.id)?.title || (item.kind === 'web' && fallback[item.id]?.url ? new URL(fallback[item.id].url).hostname : item.title);
   const fileProps = { sessionId, workspace, connected, active, request, chooseWorkspace };
   return <aside className="inspector browser-inspector" hidden={!visible} aria-label="浏览工作区">
     <div className="inspector-heading"><strong>浏览工作区</strong><div><button onClick={() => { showDownloads(!downloads); }} aria-pressed={downloads}>下载{native.downloads.length ? ` (${native.downloads.length})` : ''}</button><button className="icon" onClick={close} aria-label="关闭预览">×</button></div></div>
@@ -51,7 +52,7 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
       let next: number | undefined; if (e.key === 'ArrowRight') next = (index + 1) % state.tabs.length; if (e.key === 'ArrowLeft') next = (index + state.tabs.length - 1) % state.tabs.length; if (e.key === 'Home') next = 0; if (e.key === 'End') next = state.tabs.length - 1;
       if (next !== undefined) { e.preventDefault(); dispatch({ type: 'select', id: state.tabs[next].id }); (e.currentTarget.closest('[role=tablist]')?.querySelectorAll('[role=tab]')[next] as HTMLElement)?.focus(); }
       if (e.key === 'Delete') dispatch({ type: 'close', id: item.id });
-    }} title={native.pages.find(p => p.id === item.id)?.title ?? item.title}>{item.kind === 'web' ? '◎ ' : '▤ '}{native.pages.find(p => p.id === item.id)?.title ?? item.title}</button><button aria-label={`关闭 ${item.title}`} onClick={() => dispatch({ type: 'close', id: item.id })}>×</button></div>)}<button aria-label="新标签页" onClick={() => { showDownloads(false); dispatch({ type: 'open', id: `web:${crypto.randomUUID()}`, target: { kind: 'web', url: '' } }); }}>＋</button></div>
+    }} title={tabTitle(item)}>{item.kind === 'web' ? '◎ ' : '▤ '}{tabTitle(item)}</button><button aria-label={`关闭 ${tabTitle(item)}`} onClick={() => dispatch({ type: 'close', id: item.id })}>×</button></div>)}<button aria-label="新标签页" onClick={() => { showDownloads(false); dispatch({ type: 'open', id: `web:${crypto.randomUUID()}`, target: { kind: 'web', url: '' } }); }}>＋</button></div>
     {downloads ? <div className="download-list"><h3>下载管理器</h3>{!browser ? <p>Web 预览无法管理浏览器下载，请使用桌面版。</p> : !native.downloads.length ? <p>尚无下载。下载时会显示系统保存对话框。</p> : native.downloads.map(d => <article key={d.id}><strong>{d.name}</strong><p className="confirm-target">{d.url}</p><progress value={d.total > 0 ? d.received : undefined} max={d.total || undefined}/><p>{d.received.toLocaleString()} / {d.total > 0 ? d.total.toLocaleString() : '未知'} B · {d.state}</p>{d.state === 'progressing' && <button onClick={() => void command({ type: 'cancel-download', id: d.id })}>取消下载</button>}</article>)}</div> : <>
       {tab?.kind === 'web' && <><form className="browser-address" onSubmit={e => { e.preventDefault(); navigate(); }}><button type="button" aria-label="后退" disabled={!page?.back} onClick={() => void command({ type: 'back', id: tab.id })}>←</button><button type="button" aria-label="前进" disabled={!page?.forward} onClick={() => void command({ type: 'forward', id: tab.id })}>→</button><button type="button" aria-label="刷新网页" disabled={!displayedUrl} onClick={() => browser ? void command({ type: 'reload', id: tab.id }) : setFallback(p => ({ ...p, [tab.id]: { url: displayedUrl, revision: (p[tab.id]?.revision ?? 0) + 1, loaded: false } }))}>↻</button><input aria-label="地址栏" placeholder="输入网址" value={address} onChange={e => setAddress(e.target.value)}/><button>打开</button></form>
         {!browser && <p className="web-note">Web 嵌入预览：不支持历史导航或下载管理。网站可能禁止嵌入；无法确认页面内容或重定向后的地址。</p>}
