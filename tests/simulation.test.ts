@@ -19,7 +19,7 @@ it('validates the shared Web HTTP boundary with simulator, approvals, cancellati
     const first = (await api({ type: 'session.create', title: 'simulation A' })).sessionId!, second = (await api({ type: 'session.create', title: 'simulation B' })).sessionId!;
     await api({ type: 'workspace.grant', sessionId: first, path: workspace, confirmed: true });
     const run = async (scenario: string) => { await api({ type: 'run.start', sessionId: first, prompt: `[demo:${scenario}]`, maxSteps: 4 }); await wait(s => s.events.some(e => e.sessionId === first && e.type === 'started' && e.data.prompt === `[demo:${scenario}]`)); return (await snapshot()).events.findLast(e => e.type === 'started')!.runId; };
-    const finish = async (id: string, type = 'completed') => wait(s => s.events.some(e => e.runId === id && e.type === type));
+    const finish = async (id: string, type = 'completed') => wait(s => s.events.some(e => e.runId === id && e.type === type) && !s.sessions.some(session => session.activeRunId === id));
     const chat = await run('chat'); await finish(chat); expect((await snapshot()).events.some(e => e.runId === chat && e.type === 'model_activity')).toBe(true); expect((await snapshot()).events.filter(e => e.runId === chat && e.type === 'assistant_delta').length).toBeGreaterThan(1);
     for (const scenario of ['write', 'deny', 'retry']) {
       const id = await run(scenario); await wait(s => s.events.some(e => e.runId === id && e.type === 'approval_requested'));
