@@ -2,7 +2,7 @@ import React from 'react';
 import { Markdown } from './markdown.js';
 import { groupExecution } from './tool-groups.js';
 import type { RunEvent } from '@wisp/core';
-const names: Record<string, string> = { mcp_list_services:'查看 MCP 服务', mcp_register:'注册已有 MCP', mcp_install_npm:'安装并注册 MCP', mcp_activate_service:'激活并检查 MCP', files_mkdir: '创建文件夹', files_move: '移动 / 重命名', files_trash: '移入废纸篓', list_preview_tabs:'列出预览标签',read_webpage: '读取网页正文', files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
+const names: Record<string, string> = { ask_user:'询问任务细节', mcp_list_services:'查看 MCP 服务', mcp_register:'注册已有 MCP', mcp_install_npm:'安装并注册 MCP', mcp_activate_service:'激活并检查 MCP', files_mkdir: '创建文件夹', files_move: '移动 / 重命名', files_trash: '移入废纸篓', list_preview_tabs:'列出预览标签',read_webpage: '读取网页正文', files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
 export const toolLabel = (name:string) => names[name] ?? name;
 /** Only presentation: preview still uses the current session's Host authorization. */
 export function ToolActivity({ events, ended, canPreview, previewUnavailableReason, openFile }: { events: RunEvent[]; ended: boolean; canPreview: boolean; previewUnavailableReason?: string; openFile(path: string): void }) {
@@ -21,7 +21,8 @@ export function ToolActivity({ events, ended, canPreview, previewUnavailableReas
     const result = round.events.find(e => e.type === 'tool_result' && e.data.callId === id);
     const started = round.events.some(e => e.type === 'tool_started' && e.data.callId === id);
     const approval = round.events.some(e => e.type === 'approval_requested' && e.data.id === id);
-    const status = result ? result.data.denied ? '已拒绝' : result.data.isError ? '失败' : '已完成' : ended ? '已中断' : started ? '执行中' : approval ? '等待批准' : '检查参数';
+    const waiting=round.events.some(e=>e.type==='question_requested'&&e.data.callId===id)&&!round.events.some(e=>e.type==='question_resolved'&&e.data.callId===id);
+    const status = result ? result.data.denied ? '已拒绝' : result.data.isError ? '失败' : '已完成' : ended ? '已中断' : waiting ? '等待回答' : started ? '执行中' : approval ? '等待批准' : '检查参数';
     let searchPaths: string[] = [];
     if(name==='files_search' && result && !result.data.isError) { try { const parsed=JSON.parse(String(result.data.text)); searchPaths=Array.isArray(parsed.matches)?[...new Set<string>(parsed.matches.filter((v:any)=>typeof v.path==='string' && Number.isInteger(v.line)).map((v:any)=>v.path))].slice(0,8):[]; }catch{} }
     const path = typeof args?.path === 'string' ? args.path : '';

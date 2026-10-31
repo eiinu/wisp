@@ -29,3 +29,11 @@ it('keeps simulated MCP setup disabled until a separate activation approval and 
  const denied=fixture(1,false,'mcp_install_npm');await denied.request({...decision,allowed:false});expect((await denied.request({type:'snapshot'})).snapshot?.mcpServers??[]).toHaveLength(0);
  const success=fixture(1,false,'mcp_install_npm');await success.request(decision);await success.request({...decision,callId:'activation-fixture'});expect((await success.request({type:'snapshot'})).snapshot?.mcpServers?.[0]?.state).toBe('connected');
 });
+it('routes memory questionnaire independently of approvals, rejects duplicates and preserves session ownership',async()=>{
+ const bridge=fixture(25,false,'ask_user'),initial=(await bridge.request({type:'snapshot'})).snapshot!,event=initial.events.find(e=>e.type==='question_requested')!;
+ await expect(bridge.request(decision)).rejects.toThrow('待审批');
+ const request={type:'run.answer' as const,sessionId:'conversation-fixture',runId:event.runId,ticket:String(event.data.ticket),response:{status:'cancelled' as const}};
+ await expect(bridge.request({...request,sessionId:'empty-fixture'})).rejects.toThrow('待回答');
+ const sending=bridge.request(request);await expect(bridge.request(request)).rejects.toThrow('待回答');await bridge.request({type:'session.select',sessionId:'empty-fixture'});await sending;
+ const events=(await bridge.request({type:'snapshot'})).snapshot!.events;expect(events.filter(e=>e.type==='question_resolved')).toHaveLength(1);expect(events.find(e=>e.type==='question_resolved')?.sessionId).toBe('conversation-fixture');expect(events.some(e=>e.type==='approval_resolved')).toBe(false);
+});
