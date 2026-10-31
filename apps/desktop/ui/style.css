@@ -29,3 +29,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .composer-area{position:relative}.latest-message{display:block;margin:0 auto 8px;border:1px solid #ddd;border-radius:18px;background:#fff;font-size:12px;box-shadow:0 2px 8px #0001}
 .connection-banner{flex-wrap:wrap}.connection-banner>span{min-width:0;overflow-wrap:anywhere}.error>button{flex-shrink:0}
 @media(max-width:760px){.sidebar-visible .workspace{pointer-events:none}.sidebar{max-width:85vw}}
+/* Keep the modal's title/close action visible while its form scrolls. */
+.modal{display:flex;flex-direction:column;padding:0;overflow:hidden;max-height:min(92dvh,calc(100dvh - 28px))}
+.modal-heading{flex-shrink:0;margin:0;padding:20px 28px 16px;border-bottom:1px solid #eee;background:#fff}
+.modal-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 28px 25px}
+@media(max-width:760px){.modal-heading{padding:18px 22px 14px}.modal-body{padding:18px 22px 22px}}
+@media(max-height:400px){.modal-heading{padding-top:10px;padding-bottom:10px}.modal-body{padding-top:12px;padding-bottom:12px}}
