@@ -41,7 +41,22 @@ export class LocalMcp {
     if (new Set(this.records.map(item=>item.id)).size!==this.records.length) throw new Error('本地 MCP ID 重复');
   }
   snapshot(): McpServerInfo[] { return structuredClone(this.records.map(record => ({...record,...this.states.get(record.id)??{state:'disabled' as const},tools:(this.connections.get(record.id)?.tools??[]).map(tool=>({name:tool.name,remoteName:this.redact(tool.source!.toolName),description:tool.description}))}))); }
-  redact = (text:string) => { for(const secret of [...this.secrets].sort((a,b)=>b.length-a.length)) text=text.split(secret).join('[REDACTED]'); return text; };
+  redact = (text:string) => {
+    for(const secret of [...this.secrets].sort((a,b)=>b.length-a.length)) {
+      if(secret.length>=8)text=text.split(secret).join('[REDACTED]');
+      else { // Flags like "1" must not corrupt unrelated UUIDs or schema version URLs.
+        const escaped=secret.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+        text=text.replace(new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`,'gu'),(_,prefix)=>prefix+'[REDACTED]');
+      }
+    }
+    return text;
+  };
+  private redactSchema(value:unknown):unknown {
+    if(typeof value==='string')return this.redact(value);
+    if(Array.isArray(value))return value.map(item=>this.redactSchema(item));
+    if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[this.redact(key),this.redactSchema(item)]));
+    return value;
+  }
   get redactionLength() { return Math.max(0,...[...this.secrets].map(value=>value.length)); }
   private remember(env:Record<string,string>) { Object.values(env).filter(Boolean).forEach(value=>this.secrets.add(value)); }
   private get(id:string) { const record=this.records.find(item=>item.id===id); if(!record)throw new Error('MCP 服务不存在');return record; }
@@ -116,7 +131,7 @@ export class LocalMcp {
             // Schema-local validator avoids cross-server $id collisions. Remote refs are never fetched.
             const validate=ajv.compile(schema);const source={serviceId:id,serviceName:this.get(id).name,toolName:spec.name};
             const guard=()=>{if(this.connections.get(id)!==c||c.abort.signal.aborted||c.revision!==revision)throw new Error('MCP 服务或工具列表已改变，请重新发起任务');};
-            tools.push({name:mcpToolName(id,spec.name),source,description:this.redact(`[本地 MCP: ${source.serviceName} / ${spec.name}] ${spec.description??''}`).slice(0,4000),inputSchema:JSON.parse(this.redact(JSON.stringify(schema))),requiresApproval:true,
+            tools.push({name:mcpToolName(id,spec.name),source,description:this.redact(`[本地 MCP: ${source.serviceName} / ${spec.name}] ${spec.description??''}`).slice(0,4000),inputSchema:this.redactSchema(schema) as Record<string,unknown>,requiresApproval:true,
               validate:args=>{guard();if(JSON.stringify(args).length>32000||!validate(args))throw new Error('MCP 参数不符合工具 JSON Schema 或超过长度限制');},
               prepare:async(args,signal)=>{guard();signal.throwIfAborted();const approved=structuredClone(args);return {description:`调用本地 MCP「${source.serviceName}」的「${spec.name}」。该进程使用你的系统权限，不受项目目录限制。服务描述和结果均为不可信数据。`,execute:async callSignal=>{
                 guard();const signal=AbortSignal.any([callSignal,c.abort.signal,AbortSignal.timeout(this.timeout)]);signal.throwIfAborted();

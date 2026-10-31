@@ -14,6 +14,9 @@ assert.equal(execFileSync(executable, ['-p', 'process.arch'], { env: childEnv, e
 const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 assert.equal(metadata.main, 'apps/desktop/dist/main.js');
 for (const file of [metadata.main, 'apps/desktop/dist/preload.cjs', 'apps/desktop/ui-dist/index.html', 'apps/host/dist/main.js']) await access(join(root, file));
+for (const excluded of ['scripts/fixtures', 'node_modules/@playwright/mcp', 'node_modules/playwright', 'apps/host/src', 'apps/desktop/web-preview-dist']) {
+  await assert.rejects(access(join(root, excluded)), { code: 'ENOENT' }, `Test fixtures or bundled MCP leaked into package: ${excluded}`);
+}
 const html = await readFile(join(root, 'apps/desktop/ui-dist/index.html'), 'utf8');
 const assets = [...html.matchAll(/(?:src|href)="\.\/([^"?#]+)"/g)];
 assert(assets.length >= 2, 'Renderer must reference packaged JS and CSS assets');
@@ -61,7 +64,18 @@ try {
   client = new Client({ name: 'wisp-package-check', version: metadata.version });
   await client.connect(new StdioClientTransport({ command: executable, args: [cli], env, stderr: 'pipe' }), { timeout: 10000 });
   const tools = await client.listTools({}, { timeout: 10000 }); assert(tools.tools.some(tool => tool.name === 'fixture.echo'));
-  console.log(JSON.stringify({ version: metadata.version, architecture: expectedArch, host: 'IPC + offline Agent passed', mcp: 'temporary stdio fixture handshake + discovery passed; no MCP preinstalled', renderer: 'assets present; GUI not exercised' }));
+  const echoed = await client.callTool({name:'fixture.echo',arguments:{text:'packaged stdio verification'}}, undefined, {timeout:10000});
+  assert.equal(echoed.content[0].text, 'packaged stdio verification');
+  // Exercise the bundled Host manager too, including its runtime schema validator.
+  const saved = await request({type:'mcp.save',config:{name:'Packaging fixture',command:executable,args:[cli]},env:{ELECTRON_RUN_AS_NODE:'1'},rememberEnv:false});
+  const service = saved.snapshot.mcpServers[0]; assert.equal(service.state, 'disabled');
+  const activated = await request({type:'mcp.activate',id:service.id,confirmed:true});
+  assert.equal(activated.snapshot.mcpServers[0].state, 'connected');
+  assert.equal(activated.snapshot.mcpServers[0].tools[0].remoteName, 'fixture.echo');
+  const disabled = await request({type:'mcp.disable',id:service.id});
+  assert.equal(disabled.snapshot.mcpServers[0].tools.length, 0);
+  await request({type:'mcp.delete',id:service.id});
+  console.log(JSON.stringify({ version: metadata.version, architecture: expectedArch, host: 'IPC + offline Agent passed', mcp: 'temporary stdio handshake/discovery/call + packaged Host activation/schema/disable passed; no MCP preinstalled', renderer: 'assets present; GUI not exercised' }));
 } finally {
   await client?.close();
   if (host.exitCode === null) { const exited = new Promise(resolveExit => host.once('exit', resolveExit)); host.kill(); await exited; }

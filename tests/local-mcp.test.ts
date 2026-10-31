@@ -15,7 +15,7 @@ async function setup(options:{wait?:boolean;error?:boolean;duplicate?:boolean;ti
  const directory=await mkdtemp(join(tmpdir(),'wisp-mcp-'));cleanup.push(()=>rm(directory,{recursive:true,force:true}));
  const servers:Server[]=[],calls:any[]=[];let changed=false;
  const factory:McpTransportFactory=params=>{const [client,transport]=InMemoryTransport.createLinkedPair();const server=new Server({name:'fixture',version:'1'},{capabilities:{tools:{listChanged:true}}});servers.push(server);
- server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:(options.duplicate?['same','same']:changed?['next.tool']:['echo.tool']).map(name=>({name,description:'untrusted description',annotations:{readOnlyHint:true},inputSchema:{type:'object',properties:{text:{type:'string'}},required:['text'],additionalProperties:false}}))}));
+ server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:(options.duplicate?['same','same']:changed?['next.tool']:['echo.tool']).map(name=>({name,description:'untrusted description',annotations:{readOnlyHint:true},inputSchema:{$schema:'https://json-schema.org/draft/2020-12/schema',type:'object',properties:{text:{type:'string'},count:{type:'number',minimum:1}},required:['text'],additionalProperties:false}}))}));
  server.setRequestHandler(CallToolRequestSchema,async(req,extra)=>{calls.push(req.params);if(options.wait)await new Promise<void>(resolve=>extra.signal.addEventListener('abort',()=>resolve(),{once:true}));return {isError:options.error,content:[{type:'text',text: String(req.params.arguments?.text??'')} ,{type:'image',data:'T01JVFRFRA==',mimeType:'image/png'}]};});
  void server.connect(transport);return client;};
  const vault=new Map<string,unknown>();const desktop={call:vi.fn(async(op:string,payload:any)=>{if(op.endsWith('save'))vault.set(payload.id,{env:payload.env,binding:payload.binding});if(op.endsWith('load'))return vault.get(payload.id);if(op.endsWith('delete'))vault.delete(payload.id);})};
@@ -97,4 +97,13 @@ it('paginates discovery and enforces the global tool budget even during concurre
  const a=await manager.save(undefined,{name:'A',command:'fixture',args:[]},undefined,false),b=await manager.save(undefined,{name:'B',command:'fixture',args:[]},undefined,false);
  const results=await Promise.allSettled([manager.activate(a),manager.activate(b)]);
  expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(manager.tools()).toHaveLength(50);expect(cursors).toContain('second');
+});
+it('does not corrupt approval IDs or numeric schemas when env contains a short flag value',async()=>{
+ const f=await setup();await f.mcp.save(f.id,{name:'Fixture',command:'fixture',args:[]},{FLAG:'1'},false);await f.mcp.activate(f.id);
+ const tool=f.mcp.tools()[0]!,events:RunEvent[]=[];
+ expect(tool.inputSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');expect(tool.inputSchema.properties).toMatchObject({count:{minimum:1}});
+ const agent=new Agent({generate:async messages=>messages.some(m=>m.role==='tool')?{text:'done'}:{text:'',calls:[{id:'call-1',name:tool.name,args:{text:'private flag 1'}}]}},()=>f.mcp.tools(),new EventLog(join(f.directory,'short-env.jsonl')),e=>{events.push(e);if(e.type==='approval_requested')agent.approve(e.runId,String(e.data.id),true);},f.id,f.mcp.redact,f.mcp.redactionLength);
+ await agent.run('short flag test');expect(events.some(e=>e.type==='completed')).toBe(true);expect(f.calls).toHaveLength(1);
+ expect(events.find(e=>e.type==='tool_requested')?.data.source).toMatchObject({serviceId:f.id});
+ expect(events.find(e=>e.type==='tool_result')?.data.callId).toBe('call-1');expect(events.find(e=>e.type==='tool_result')?.data.text).toContain('private flag [REDACTED]');
 });

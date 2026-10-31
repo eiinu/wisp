@@ -24,7 +24,14 @@ export class Agent {
     const id = randomUUID(), controller = new AbortController(), signal = controller.signal;
     this.active = { id, controller };
     const emit = async (type: RunEvent['type'], data: RunEvent['data'] = {}) => {
-      const event: RunEvent = { version: 1, id: randomUUID(), runId: id, sessionId: this.sessionId, at: new Date().toISOString(), type, data: this.redactData(data) as RunEvent['data'] };
+      const safeData = this.redactData(data) as RunEvent['data'];
+      // Host correlation identifiers are control data, not server text. Redacting a short
+      // env value such as "1" inside these identifiers would break approval routing.
+      for (const key of ['id', 'callId', 'name']) if (key in data) safeData[key] = data[key];
+      if (data.source && typeof data.source === 'object' && safeData.source && typeof safeData.source === 'object') {
+        (safeData.source as Record<string,unknown>).serviceId = (data.source as Record<string,unknown>).serviceId;
+      }
+      const event: RunEvent = { version: 1, id: randomUUID(), runId: id, sessionId: this.sessionId, at: new Date().toISOString(), type, data: safeData };
       await this.log.append(event); this.publish(event);
     };
     const callIds = new Set<string>();
