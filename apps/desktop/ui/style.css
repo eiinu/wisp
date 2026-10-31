@@ -123,3 +123,18 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .browser-inspector .web-note{color:#858585;background:#fafafa;border-bottom:1px solid #eee;font-size:10px;line-height:1.6}
 .browser-inspector button:disabled{opacity:.35}
 .browser-inspector button:focus-visible{outline-offset:-2px}
+
+.project-navigation{flex:1;min-height:0;overflow:auto;padding:0 8px}
+.project-section-heading{display:flex;align-items:center;justify-content:space-between;padding:6px 8px;color:#888;font-size:12px}
+.project-section-heading button,.project-row>button{display:flex;align-items:center;justify-content:center;width:30px;height:30px;padding:6px}
+.project-row{display:flex;align-items:center;min-width:0}
+.project-row .project-toggle{display:flex;align-items:center;flex:1;min-width:0;gap:8px;padding:8px;text-align:left;font-size:13px}
+.project-toggle>span:first-of-type{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-children{margin:0 0 8px 12px;padding-left:6px;border-left:1px solid #e1e1e1}
+.project-children[hidden]{display:none}
+.project-directory,.project-new-chat{display:flex;align-items:center;gap:7px;width:100%;text-align:left;font-size:12px;padding:8px;color:#666;overflow-wrap:anywhere}
+.project-navigation .sidebar-label{padding-left:8px}
+.project-dialog{z-index:100}
+
+.qa-layout .qa-project-sidebar{position:static;transform:none;width:210px;min-width:180px;height:100%;box-shadow:none}
+@media(max-width:680px){.qa-layout .qa-project-sidebar{width:160px;min-width:140px}}

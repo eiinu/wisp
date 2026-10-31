@@ -67,3 +67,9 @@ it('keeps file editing in the single path toolbar and submits through approval',
   expect(request).toHaveBeenLastCalledWith({ type: 'files.write', sessionId: 'one', path: 'note.md', content: '# Original' });
   expect(container.textContent).toContain('写入已提交审批');
 });
+it('exposes project files without offering per-session root replacement or revoke',async()=>{
+ const request=vi.fn(async():Promise<Result>=>({entries}));
+ await act(()=>root.render(<FilePanel {...props} inheritedWorkspace request={request}/>));
+ expect(container.textContent).toContain('项目授权');expect(container.textContent).not.toContain('更换目录');expect(container.textContent).not.toContain('撤销授权');
+ expect(request).toHaveBeenCalledWith({type:'files.list',sessionId:'one',path:''});
+});

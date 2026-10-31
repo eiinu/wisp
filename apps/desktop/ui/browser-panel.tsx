@@ -6,9 +6,9 @@ import { FilePanel } from './file-panel.js';
 import { useLinkConfirmation } from './link-confirmation.js';
 import { safeWebUrl, type PreviewAction, type PreviewState, type PreviewTarget, type PreviewTab } from './preview-model.js';
 
-export function BrowserPanel({ state, dispatch, visible, blocked, close, sessionId, workspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
+export function BrowserPanel({ state, dispatch, visible, blocked, close, sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace, browser = window.wisp?.browser }: {
   state: PreviewState; dispatch: Dispatch<PreviewAction>; visible: boolean; blocked: boolean; close(): void;
-  sessionId?: string; workspace?: string; connected: boolean; active: boolean; request(request: Request): Promise<Result>; chooseWorkspace(): void; browser?: BrowserBridge;
+  sessionId?: string; workspace?: string; inheritedWorkspace?: boolean; connected: boolean; active: boolean; request(request: Request): Promise<Result>; chooseWorkspace(): void; browser?: BrowserBridge;
 }) {
   const confirmation = useLinkConfirmation();
   const [native, setNative] = useState<BrowserSnapshot>({ pages: [], downloads: [] });
@@ -63,7 +63,7 @@ export function BrowserPanel({ state, dispatch, visible, blocked, close, session
   }
   const open = (target: PreviewTarget | {kind: 'workspace'}) => dispatch({ type: 'open', target });
   const tabTitle = (item: PreviewTab) => native.pages.find(p => p.id === item.id)?.title || (item.kind === 'web' && fallback[item.id]?.url ? new URL(fallback[item.id].url).hostname : item.title);
-  const fileProps = { sessionId, workspace, connected, active, request, chooseWorkspace };
+  const fileProps = { sessionId, workspace, inheritedWorkspace, connected, active, request, chooseWorkspace };
   return <aside className="inspector browser-inspector" hidden={!visible} aria-label="浏览工作区">
 
     <div className="browser-tabbar"><div className="browser-tabs" ref={tablist} role="tablist" aria-label="预览标签">{state.tabs.map((item, index) => <div className={`browser-tab ${item.id === tab?.id ? 'is-active' : ''}`} key={item.id}><button role="tab" aria-selected={item.id === tab?.id} tabIndex={item.id === tab?.id ? 0 : -1} onClick={() => { showDownloads(false); dispatch({ type: 'select', id: item.id }); }} onKeyDown={e => {

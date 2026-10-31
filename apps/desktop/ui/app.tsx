@@ -3,6 +3,7 @@ import type { WorkbenchBridge, Request, Snapshot, RunEvent, ModelConfig, ModelIn
 import { webBridge } from './bridge.js';
 import { copyText } from './clipboard.js';
 import { Markdown } from './markdown.js';
+import { ProjectSidebar } from './project-sidebar.js';
 import { SplitWorkspace } from './split-workspace.js';
 import { BrowserPanel } from './browser-panel.js';
 import { previewReducer, type PreviewTarget } from './preview-model.js';
@@ -26,6 +27,8 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
   const [config, setConfig] = useState<ModelConfig>({ provider: 'deepseek', model: 'deepseek-flash', baseUrl: 'https://api.deepseek.com' }), [apiKey, setApiKey] = useState(''), [connection, setConnection] = useState('');
   const [rememberKey, setRememberKey] = useState(true);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [projectDialog, setProjectDialog] = useState(false);
+  const sessionCreating = useRef(false);
   const [workspace, setWorkspace] = useState('');
   const [preview, dispatchPreview] = useReducer(previewReducer, { tabs: [] });
   const openPreview = useCallback((target: PreviewTarget) => { dispatchPreview({type: 'open', target}); setPanel(true); }, []);
@@ -58,7 +61,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
       if (notice.type === 'changed') void refresh();
       if (notice.type === 'event') {
         const e = notice.event;
-        setSnapshot(s => ({ ...s, events: s.events.some(old => old.id === e.id) ? s.events : [...s.events, e], sessions: s.sessions.map(session => session.id !== e.sessionId ? session : { ...session, updatedAt: e.at, activeRunId: e.type === 'started' ? e.runId : ['completed', 'failed', 'cancelled'].includes(e.type) ? undefined : session.activeRunId }) }));
+        setSnapshot(s => ({ ...s, events: s.events.some(old => old.id === e.id) ? s.events : [...s.events, e], sessions: s.sessions.map(session => session.id !== e.sessionId ? session : { ...session, updatedAt: e.at, activeRunId: e.type === 'started' ? e.runId : session.activeRunId }) }));
       }
     });
     void refresh();
@@ -83,7 +86,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
   }, [modal]);
   useEffect(() => { setWorkspace(current?.workspace ?? ''); }, [selected, current?.workspace]);
   useEffect(() => { if (snapshot.config) setConfig(snapshot.config); }, [snapshot.config?.provider, snapshot.config?.model, snapshot.config?.baseUrl]);
-  const newSession = () => action(async () => { const result = await api({ type: 'session.create', title: '新会话' }); setSelected(result.sessionId); setSidebar(false); });
+  const newSession = () => action(async () => { if (sessionCreating.current) return; sessionCreating.current = true; try { const result = await api({ type: 'session.create', title: '新会话' }); setSelected(result.sessionId); setSidebar(false); } finally { sessionCreating.current = false; } });
   const select = (id: string) => { setSelected(id); setSidebar(false); void action(() => api({ type: 'session.select', sessionId: id })); };
   const send = async () => {
     if (!connected || !modelReady || !prompt.trim() || active || busy) return;
@@ -107,22 +110,23 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
   const showWorkspace = () => { if (!preview.tabs.length) dispatchPreview({type: 'open', target: {kind: 'workspace'}}); setPanel(!panel); };
   useEffect(() => { dispatchPreview({type: 'scope', sessionId: selected, workspace: current?.workspace}); }, [selected, current?.workspace]);
 
-  const chooseWorkspace = () => { if (!selected) { setError('请先新建一个会话，再授权目录'); return; } setWorkspace(current?.workspace ?? ''); setModal('workspace'); };
+  const chooseWorkspace = () => { if (current?.projectId) { dispatchPreview({type:'open',target:{kind:'workspace'}}); setPanel(true); return; } if (!selected) { setError('请先新建一个会话，再授权目录'); return; } setWorkspace(current?.workspace ?? ''); setModal('workspace'); };
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); if (connected && !modal) void newSession(); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); if (connected && !modal && !projectDialog) void newSession(); }
       if (event.key === 'Escape') { setModal(undefined); setApiKey(''); setSidebar(false); }
     };
     window.addEventListener('keydown', shortcuts); return () => window.removeEventListener('keydown', shortcuts);
-  }, [connected, bridge, modal]);
+  }, [connected, bridge, modal, projectDialog]);
   const runs = [...new Set(events.map(e => e.runId))];
   return <LinkConfirmationProvider onOpen={openPreview}><div className={`workbench ${sidebar ? 'sidebar-visible' : ''}`}>
     <aside className="sidebar"><div className="brand"><span className="mark">w</span><strong>Wisp</strong><button className="icon mobile" onClick={() => setSidebar(false)} aria-label="关闭侧栏">×</button></div>
       <button className="new-chat" onClick={() => void newSession()} disabled={!connected}><span>＋</span> 新对话 <kbd>⌘ N</kbd></button>
-      <div className="sidebar-label">会话</div><nav>{snapshot.sessions.map(session => <button aria-current={session.id === selected ? 'page' : undefined} className={`session ${session.id === selected ? 'selected' : ''}`} key={session.id} onClick={() => select(session.id)} disabled={!connected}><span className="session-title">{session.title}</span>{session.activeRunId ? <span className="pulse" title="执行中"/> : <small>{new Date(session.updatedAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })}</small>}</button>)}{!snapshot.sessions.length && <p className="sidebar-empty">新的想法，从这里开始。<br/>连接 Host 后保存你的会话。</p>}</nav>
+      <ProjectSidebar projects={snapshot.projects ?? []} sessions={snapshot.sessions} selected={selected} connected={connected} request={api} select={select} chooseDirectory={window.wisp?.chooseDirectory} onDialogChange={setProjectDialog} openDirectory={id => { select(id); dispatchPreview({type:'open',target:{kind:'workspace'}}); setPanel(true); }}/>
+
       <div className="sidebar-bottom"><button onClick={() => setModal('settings')}><span>⚙</span><span>模型与设置<small>{snapshot.config?.model ?? '尚未配置模型'}</small></span></button><button onClick={() => setModal('connect')}><span className={`connection-dot ${connected ? 'online' : ''}`}/><span>{connected ? '本机 Host 已连接' : '本机 Host 未连接'}<small>{connected ? '数据保存在你的电脑' : '当前仅查看工作台界面'}</small></span></button></div>
     </aside>
-    <SplitWorkspace visible={panel} right={({ dragging }) => <BrowserPanel state={preview} dispatch={dispatchPreview} visible={!!panel} blocked={!!modal || dragging} close={() => setPanel(false)} sessionId={selected} workspace={current?.workspace} connected={connected} active={!!active} request={api} chooseWorkspace={chooseWorkspace}/>}>
+    <SplitWorkspace visible={panel} right={({ dragging }) => <BrowserPanel state={preview} dispatch={dispatchPreview} visible={!!panel} blocked={!!modal || projectDialog || dragging} close={() => setPanel(false)} sessionId={selected} workspace={current?.workspace} inheritedWorkspace={!!current?.projectId} connected={connected} active={!!active} request={api} chooseWorkspace={chooseWorkspace}/>}>
     <div className="workspace"><header className="topbar"><div><button className="icon mobile" onClick={() => setSidebar(true)} aria-label="打开侧栏">☰</button><button className="model-button" onClick={() => setModal('settings')}>Wisp <span>{snapshot.config?.provider === 'offline' ? '离线验证' : snapshot.config?.model ?? '选择模型'}</span>⌄</button></div><div className="top-actions"><button className={panel ? 'active' : ''} onClick={showWorkspace} aria-label="切换工作区" aria-expanded={panel} title={panel ? '收起工作区' : '展开工作区'}><span aria-hidden="true">▱</span> <span>工作区</span></button><button className="icon" onClick={() => setModal('settings')} aria-label="设置">⚙</button></div></header>
       {connected && snapshot.config?.model === 'wisp-dev-simulator' && <div className="connection-banner"><span>开发模拟 · 脚本模型，非真实 DeepSeek；文件工具真实执行，仅用于临时目录验证。</span></div>}
       {!connected && <div className="connection-banner"><span>{window.wisp ? error ? '本机 Host 连接失败，请重试；若 Host 已停止，请重新启动 Wisp。' : '正在连接本机 Host。如出现 Wisp Safe Storage 系统提示，请按需授权读取已保存的 Key；密码仅输入系统弹窗。' : '此界面未连接本机 Host，不能执行任务或读取文件。'}</span>{window.wisp ? <button onClick={() => { setError(''); setConnectionAttempt(value => value + 1); }}>重新连接</button> : <button onClick={() => setModal('connect')}>连接 Host →</button>}</div>}
@@ -141,7 +145,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
             {!terminal && !steps.length && !pending.length && <span className="thinking">正在思考<span>•••</span></span>}
           </div></div></div>;
         })}<div ref={bottom}/></div>
-        <div className="composer-area">{awayFromBottom && <button className="latest-message" onClick={() => { followStream.current = true; setAwayFromBottom(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>↓ 回到最新消息</button>}{error && <div className="error" role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误">×</button></div>}<form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}><textarea aria-label="消息" placeholder={connected ? modelReady ? '给 Wisp 发消息…' : '先在设置中连接模型…' : '连接本机 Host 后开始对话…'} value={prompt} onChange={e => setDrafts(d => ({ ...d, [selected ?? 'new']: e.target.value }))} maxLength={16000} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/><div className="composer-toolbar"><button type="button" className="workspace-chip" onClick={chooseWorkspace}>＋ {current?.workspace ? current.workspace.split(/[\\/]/).at(-1) : '授权工作目录'}</button><div><small>{snapshot.config?.provider === 'offline' ? '离线验证 · 真实文件工具' : '每项任务最多 8 步'}</small>{active ? <button type="button" className="send" aria-label="取消执行" onClick={() => void action(() => api({ type: 'run.cancel', sessionId: selected!, runId: active }))}>■</button> : <button className="send" aria-label="发送" disabled={!connected || !modelReady || !prompt.trim() || busy}>↑</button>}</div></div></form><p className="composer-footnote">{current?.workspace ? '仅访问此会话授权的目录。文件写入始终需要你的批准。' : '你的文件与执行过程保留在本机。模型可能会出错，请核对重要结果。'}</p></div>
+        <div className="composer-area">{awayFromBottom && <button className="latest-message" onClick={() => { followStream.current = true; setAwayFromBottom(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>↓ 回到最新消息</button>}{error && <div className="error" role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误">×</button></div>}<form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}><textarea aria-label="消息" placeholder={connected ? modelReady ? '给 Wisp 发消息…' : '先在设置中连接模型…' : '连接本机 Host 后开始对话…'} value={prompt} onChange={e => setDrafts(d => ({ ...d, [selected ?? 'new']: e.target.value }))} maxLength={16000} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/><div className="composer-toolbar"><button type="button" className="workspace-chip" onClick={chooseWorkspace}>＋ {current?.workspace ? current.workspace.split(/[\\/]/).at(-1) : '授权工作目录'}</button><div><small>{snapshot.config?.provider === 'offline' ? '离线验证 · 真实文件工具' : '每项任务最多 8 步'}</small>{active ? <button type="button" className="send" aria-label="取消执行" onClick={() => void action(() => api({ type: 'run.cancel', sessionId: selected!, runId: active }))}>■</button> : <button className="send" aria-label="发送" disabled={!connected || !modelReady || !prompt.trim() || busy}>↑</button>}</div></div></form><p className="composer-footnote">{current?.workspace ? `${current.projectId ? '继承项目目录权限' : '仅访问此会话授权的目录'}。文件写入始终需要你的批准。` : '你的文件与执行过程保留在本机。模型可能会出错，请核对重要结果。'}</p></div>
       </main>
 
 
