@@ -30,6 +30,11 @@ it('supports keyboard resize, remembers preference and clamps after window resiz
 it('captures dragging, signals native view blocking and restores on pointer cancel',async()=>{
  await render();await pointer('pointerdown',810);expect(HTMLElement.prototype.setPointerCapture).toHaveBeenCalledWith(7);expect(container.querySelector('[data-dragging]')?.getAttribute('data-dragging')).toBe('true');
  await pointer('pointermove',1110);expect(container.querySelector('[role=separator]')?.getAttribute('aria-valuenow')).toBe('900');
- await pointer('pointercancel',1110);expect(container.querySelector('[role=separator]')?.getAttribute('aria-valuenow')).toBe('600');expect(container.querySelector('[data-dragging]')?.getAttribute('data-dragging')).toBe('false');expect(HTMLElement.prototype.releasePointerCapture).toHaveBeenCalledWith(7);
+ await pointer('pointercancel',1110);expect(container.querySelector('[role=separator]')?.getAttribute('aria-valuenow')).toBe('456');expect(container.querySelector('[data-dragging]')?.getAttribute('data-dragging')).toBe('false');expect(HTMLElement.prototype.releasePointerCapture).toHaveBeenCalledWith(7);
  await pointer('pointerdown',810);await pointer('pointermove',610);await pointer('pointerup',610);expect(container.querySelector('[role=separator]')?.getAttribute('aria-valuenow')).toBe('400');
+});
+it('starts with more reading space but preserves an existing width preference',async()=>{
+ await render();expect(container.querySelector('[role=separator]')?.getAttribute('aria-valuenow')).toBe('456');
+ await act(()=>root.unmount());localStorage.setItem('wisp.workspace-split-ratio','0.6');root=createRoot(container);
+ await render();expect(container.querySelector('[role=separator]')?.getAttribute('aria-valuenow')).toBe('720');
 });

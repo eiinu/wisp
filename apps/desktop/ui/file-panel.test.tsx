@@ -56,3 +56,14 @@ it('submits new files for approval without claiming the write completed', async 
   expect(request).toHaveBeenLastCalledWith({ type: 'files.write', sessionId: 'one', path: 'notes.md', content: '' });
   expect(container.textContent).toContain('写入已提交审批');
 });
+it('keeps file editing in the single path toolbar and submits through approval', async () => {
+  const request = vi.fn(async (): Promise<Result> => ({ file: { path: 'note.md', kind: 'markdown', text: '# Original', size: 10 } }));
+  await act(() => root.render(<FilePanel {...props} filePath="note.md" request={request}/>));
+  expect(container.querySelector('.preview-title')).toBeNull();
+  expect(container.querySelector('.file-toolbar')?.textContent).toContain('编辑');
+  expect(container.querySelector('.file-preview-markdown h1')?.textContent).toBe('Original');
+  await click('编辑'); expect(container.querySelector('.file-editor')).not.toBeNull();
+  await click('提交写入审批');
+  expect(request).toHaveBeenLastCalledWith({ type: 'files.write', sessionId: 'one', path: 'note.md', content: '# Original' });
+  expect(container.textContent).toContain('写入已提交审批');
+});

@@ -7,7 +7,7 @@ export function splitWidths(total: number, ratio: number) {
   return { narrow: false, left, right: available - left };
 }
 const storageKey = 'wisp.workspace-split-ratio';
-function rememberedRatio() { try { const value = Number(localStorage.getItem(storageKey)); return value > 0 && value < 1 ? value : .5; } catch { return .5; } }
+function rememberedRatio() { try { const value = Number(localStorage.getItem(storageKey)); return value > 0 && value < 1 ? value : .38; } catch { return .38; } }
 export function SplitWorkspace({ visible, children, right }: { visible: boolean; children: React.ReactNode; right(state: { dragging: boolean }): React.ReactNode }) {
   const container = useRef<HTMLDivElement>(null), separator = useRef<HTMLDivElement>(null), leftId = useId();
   const [total, setTotal] = useState(0), [ratio, setRatio] = useState(rememberedRatio), [dragging, setDragging] = useState(false);

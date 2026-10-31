@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { FileEntry, FilePreview, Request, Result } from '@wisp/core';
 import type { LinkSource } from './preview-model.js';
+import { WorkspaceIcon } from './workspace-icon.js';
 import { Markdown } from './markdown.js';
 
 const displayLimit = 100_000;
@@ -59,15 +60,15 @@ export function FilePanel({ sessionId, workspace, connected, active, request, ch
       {workspace && <><button disabled={!connected || saving} onClick={() => void (filePath !== undefined ? read(filePath) : list())}>刷新</button>
         <button disabled={!connected || active || saving} onClick={() => { sequence.current++; setLoading(undefined); setError(''); setNotice(''); setFile({ path: path ? `${path}/notes.md` : 'notes.md', kind: 'markdown', text: '', size: 0 }); setText(''); setNewFile(true); setEditing(true); }}>新建</button>
         <button disabled={!connected || active || saving} onClick={() => { if (sessionId) void requestRef.current({ type: 'workspace.revoke', sessionId }).catch(e => { if (live.current) setError(String(e)); }); }}>撤销授权</button></>}
-    </> : <><span className="file-location" title={filePath}>{filePath}</span><button disabled={!connected || saving} onClick={() => void read(filePath)}>刷新</button></>}</div>
-    {!workspace ? <div className="panel-empty"><span>▱</span><h3>让文件成为上下文</h3><p>选择一个你允许 Wisp 访问的文件夹。授权仅属于当前会话，可随时撤销。</p></div> : <>
+    </> : <><WorkspaceIcon name="file"/><span className="file-location" title={filePath}>{filePath}</span>{editable && !editing && <button disabled={!connected || active} onClick={() => { setEditing(true); setText(file.text!); }}><WorkspaceIcon name="edit"/>编辑</button>}<button aria-label="刷新文件" title="刷新文件" disabled={!connected || saving} onClick={() => void read(filePath)}><WorkspaceIcon name="refresh"/></button></>}</div>
+    {!workspace ? <div className="panel-empty"><span><WorkspaceIcon name="folder"/></span><h3>让文件成为上下文</h3><p>选择一个你允许 Wisp 访问的文件夹。授权仅属于当前会话，可随时撤销。</p></div> : <>
       {!connected && <p className="file-status">Host 已断开，文件操作暂不可用。</p>}
       {error && <div className="error" role="alert">{error}</div>}{notice && <p className="file-status" role="status">{notice}</p>}
       {filePath === undefined && <><div className="breadcrumb"><button disabled={!connected || saving} onClick={() => void list('')}>根目录</button><span> / {path}</span>{path && <button disabled={!connected || saving} onClick={() => void list(path.split('/').slice(0, -1).join('/'))}>↑ 上一级</button>}</div>
       {loading === 'list' && <p className="file-status" role="status">正在读取目录…</p>}
-      <div className="file-list" aria-label="目录文件">{entries.map(entry => <button key={entry.path} disabled={!connected || saving} aria-pressed={file?.path === entry.path} onClick={() => void (entry.kind === 'directory' ? list(entry.path) : onOpenFile ? onOpenFile(entry.path) : read(entry.path))}><span>{entry.kind === 'directory' ? '▱' : '▤'}</span><span title={entry.name}>{entry.name}</span><small>{entry.kind === 'file' ? `${entry.size} B` : '›'}</small></button>)}{!entries.length && !loading && !error && <p>此目录没有可显示的文件。</p>}</div>
+      <div className="file-list" aria-label="目录文件">{entries.map(entry => <button key={entry.path} disabled={!connected || saving} aria-pressed={file?.path === entry.path} onClick={() => void (entry.kind === 'directory' ? list(entry.path) : onOpenFile ? onOpenFile(entry.path) : read(entry.path))}><WorkspaceIcon name={entry.kind === 'directory' ? 'folder' : 'file'}/><span title={entry.name}>{entry.name}</span><small>{entry.kind === 'file' ? `${entry.size} B` : '›'}</small></button>)}{!entries.length && !loading && !error && <p>此目录没有可显示的文件。</p>}</div>
       </>}{loading === 'read' && <p className="file-status" role="status">正在读取文件…</p>}
-      {file && <div className="file-preview"><div className="preview-title">{filePath === undefined && <strong>{file.path}</strong>}{editable && !editing && <button disabled={!connected || active} onClick={() => { setEditing(true); setText(file.text!); }}>编辑</button>}</div>
+      {file && <div className={`file-preview file-preview-${file.kind} ${editing ? 'is-editing' : ''}`}>{filePath === undefined && <div className="preview-title"><strong>{file.path}</strong>{editable && !editing && <button disabled={!connected || active} onClick={() => { setEditing(true); setText(file.text!); }}><WorkspaceIcon name="edit"/>编辑</button>}</div>}
         {editing ? <><p className="file-status">{newFile ? '新文件，尚未保存。' : '修改将以 UTF-8 保存。'}写入需要在对话中审批。</p><label>相对文件路径<input disabled={saving} value={file.path} onChange={e => setFile({ ...file, path: e.target.value })}/></label>
           <textarea className="file-editor" aria-label="文件内容" disabled={saving} value={text} onChange={e => setText(e.target.value)}/>
           <button className="primary" disabled={!connected || active || saving || !file.path.trim()} onClick={() => void save()}>{saving ? '正在提交…' : '提交写入审批'}</button>

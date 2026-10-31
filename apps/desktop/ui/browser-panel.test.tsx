@@ -24,7 +24,7 @@ it('labels a Web new tab by the entered hostname and updates it on subsequent na
    await act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(address,url);address.dispatchEvent(new Event('input',{bubbles:true}));});
    await act(()=>container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
    const hostname=new URL(url).hostname;
-   expect(container.querySelector('[role=tab]')?.textContent).toBe(`◎ ${hostname}`);
+   expect(container.querySelector('[role=tab]')?.textContent).toBe(hostname);
    expect(container.querySelector('[role=tab]')?.getAttribute('title')).toBe(hostname);
    expect(container.querySelector(`[aria-label="关闭 ${hostname}"]`)).not.toBeNull();
    expect(container.querySelector('iframe')?.getAttribute('src')).toBe(url);
