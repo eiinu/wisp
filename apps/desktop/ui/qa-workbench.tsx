@@ -74,7 +74,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   });
 
   let tabAction:{sessionId:string;runId:string;ticket:string;tab:PreviewTabMetadata;action:PreviewTabAction;claimed:boolean;executed:boolean;approved:boolean}|undefined;
-  const endAction=(text:string,isError=false)=>{const p=tabAction;if(!p)return;state.events.push(event(crypto.randomUUID(),p.runId,'tool_result',{callId:'qa-tab-action',text,isError},p.sessionId),event(crypto.randomUUID(),p.runId,'completed',{},p.sessionId));const session=state.sessions.find(s=>s.id===p.sessionId);if(session)delete session.activeRunId;tabAction=undefined;changed();};
+  const endAction=(text:string,isError=false,denied=false)=>{const p=tabAction;if(!p)return;state.events.push(event(crypto.randomUUID(),p.runId,'tool_result',{callId:'qa-tab-action',text,isError,denied},p.sessionId),event(crypto.randomUUID(),p.runId,'completed',{},p.sessionId));const session=state.sessions.find(s=>s.id===p.sessionId);if(session)delete session.activeRunId;tabAction=undefined;changed();};
   return {
     async inspectTabs(){
       const sessionId=state.selectedId!;const rows=await queryTabs(sessionId);
@@ -114,7 +114,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         const p=tabAction;if(!p||p.approved||input.sessionId!==p.sessionId||input.runId!==p.runId)throw new Error('样例审批已失效');p.approved=true;
         await new Promise(r=>setTimeout(r,approvalDelay));if(tabAction!==p)return{};
         state.events.push(event(crypto.randomUUID(),p.runId,'approval_resolved',{callId:'qa-tab-action',allowed:input.allowed},p.sessionId));
-        if(!input.allowed){endAction('QA 已拒绝；没有操作标签');return{};}
+        if(!input.allowed){endAction('QA 已拒绝；没有操作标签',false,true);return{};}
         state.events.push(event(crypto.randomUUID(),p.runId,'tool_started',{callId:'qa-tab-action',name:'preview_tab_action'},p.sessionId));changed();
         listeners.forEach(l=>l({type:'preview.action',sessionId:p.sessionId,ticket:p.ticket}));return{};
       }

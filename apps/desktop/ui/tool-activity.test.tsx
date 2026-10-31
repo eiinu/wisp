@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 import type { RunEvent } from '@wisp/core';
+import {fixture} from './qa-workbench.js';
 import { ToolActivity } from './tool-activity.js';
 let container: HTMLDivElement, root: Root;
 beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
@@ -56,4 +57,18 @@ it('distinguishes installation, registration and activation in chat tool summari
   await render(<ToolActivity events={[{...events[0],data:{id:'c',name,args:{}}}]} ended={false} canPreview={false} openFile={vi.fn()}/>);
   expect(container.querySelector('.tool-trace summary strong')?.textContent).toBe(label);expect(container.querySelector('button')).toBeNull();
  }
+});
+
+it('renders a rejected tab action from the real QA event contract as denied even when collapsed',async()=>{
+ const bridge=fixture(10,false,'preview_tab_action');let deliveries=0;
+ bridge.subscribe(n=>{if(n.type==='preview.tabs')void(async()=>{await bridge.request({type:'preview.tabs.claim',sessionId:n.sessionId,ticket:n.ticket});await bridge.request({type:'preview.tabs.complete',sessionId:n.sessionId,ticket:n.ticket,tabs:[{id:'new',kind:'new',title:'New',active:true}]});})();if(n.type==='preview.action')deliveries++;});
+ const tabs=await bridge.inspectTabs();await bridge.beginAction(tabs[0].tabId,'close');const runId=(await bridge.request({type:'snapshot'})).snapshot!.sessions[0].activeRunId!;
+ const decision={type:'run.approve' as const,sessionId:'conversation-fixture',runId,callId:'qa-tab-action',allowed:false};
+ const pending=bridge.request(decision);await expect(bridge.request(decision)).rejects.toThrow('失效');await pending;
+ const events=(await bridge.request({type:'snapshot'})).snapshot!.events.filter(e=>e.runId===runId);
+ expect(events.filter(e=>e.type==='tool_result')).toHaveLength(1);expect(events.find(e=>e.type==='tool_result')?.data.denied).toBe(true);expect(deliveries).toBe(0);
+ await render(<ToolActivity events={events} ended canPreview={false} openFile={vi.fn()}/>);
+ expect(container.textContent).not.toContain('已完成');expect(container.textContent).toContain('已拒绝');
+ const details=container.querySelector<HTMLDetailsElement>('.execution-process')!;details.open=false;
+ expect(container.querySelector('[role=status]')!.textContent).toContain('1 项已拒绝');expect(container.querySelector('[role=status]')!.closest('details')).toBeNull();
 });
