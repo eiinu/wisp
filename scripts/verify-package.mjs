@@ -1,4 +1,4 @@
-import { access, readFile, mkdtemp, rm, readdir, realpath } from 'node:fs/promises';
+import { access, readFile, writeFile, mkdtemp, rm, readdir, realpath } from 'node:fs/promises';
 import { resolve, join, relative, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -29,7 +29,7 @@ async function inspect(directory) {
 }
 await inspect(root);
 const require = createRequire(join(root, 'package.json'));
-for (const specifier of ['@earendil-works/pi-ai', '@earendil-works/pi-ai/api/openai-completions.lazy', '@modelcontextprotocol/sdk/client/index.js', '@playwright/mcp/package.json']) {
+for (const specifier of ['@earendil-works/pi-ai', '@earendil-works/pi-ai/api/openai-completions.lazy', '@modelcontextprotocol/sdk/client/index.js', 'ajv/dist/2020.js']) {
   const resolved = execFileSync(executable, ['--input-type=module', '-e', `console.log(import.meta.resolve(${JSON.stringify(specifier)}))`], { cwd: root, env: childEnv, encoding: 'utf8' }).trim();
   const file = fileURLToPath(resolved); await access(file); assert(!relative(root, file).startsWith('..'), `Dependency escaped package: ${specifier}`);
 }
@@ -55,12 +55,13 @@ try {
   assert(completed, 'Packaged offline Agent did not complete');
   const { Client } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/index.js')).href);
   const { StdioClientTransport } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/stdio.js')).href);
-  const cli = join(require.resolve('@playwright/mcp/package.json'), '..', 'cli.js');
+  const cli = join(data, 'mcp-fixture.mjs');
+  await writeFile(cli, await readFile(new URL('./fixtures/mcp-stdio.mjs', import.meta.url)));
   const env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'TEMP', 'SYSTEMROOT'].filter(key => process.env[key]).map(key => [key, process.env[key]])); env.ELECTRON_RUN_AS_NODE = '1';
   client = new Client({ name: 'wisp-package-check', version: metadata.version });
-  await client.connect(new StdioClientTransport({ command: executable, args: [cli, '--browser', 'chromium', '--sandbox', '--isolated'], env, stderr: 'pipe' }), { timeout: 10000 });
-  const tools = await client.listTools({}, { timeout: 10000 }); assert(tools.tools.some(tool => tool.name === 'browser_navigate'));
-  console.log(JSON.stringify({ version: metadata.version, architecture: expectedArch, host: 'IPC + offline Agent passed', mcp: 'handshake + discovery passed; browser not launched', renderer: 'assets present; GUI not exercised' }));
+  await client.connect(new StdioClientTransport({ command: executable, args: [cli], env, stderr: 'pipe' }), { timeout: 10000 });
+  const tools = await client.listTools({}, { timeout: 10000 }); assert(tools.tools.some(tool => tool.name === 'fixture.echo'));
+  console.log(JSON.stringify({ version: metadata.version, architecture: expectedArch, host: 'IPC + offline Agent passed', mcp: 'temporary stdio fixture handshake + discovery passed; no MCP preinstalled', renderer: 'assets present; GUI not exercised' }));
 } finally {
   await client?.close();
   if (host.exitCode === null) { const exited = new Promise(resolveExit => host.once('exit', resolveExit)); host.kill(); await exited; }

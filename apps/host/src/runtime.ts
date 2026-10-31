@@ -15,7 +15,7 @@ import { StateStore } from './state.js';
 import { WorkspaceFiles } from './files.js';
 import { configuredProvider } from './pi.js';
 import { offlineProvider } from './offline.js';
-import { BrowserSession, type BrowserTransportFactory } from './browser.js';
+import { LocalMcp, type McpTransportFactory } from './local-mcp.js';
 export class Runtime {
   readonly store: StateStore;
   private events: RunEvent[] = [];
@@ -29,10 +29,10 @@ export class Runtime {
   private keyChanging = false;
   private protectedKey = false;
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
-  private browsers = new Map<string, BrowserSession>();
-  constructor(directory: string, private browserFactory?: BrowserTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService) { this.store = new StateStore(resolve(directory)); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); }
+  private mcp: LocalMcp;
+  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService) { this.store = new StateStore(resolve(directory)); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); }
   async init() {
-    await this.store.load();
+    await this.store.load(); await this.mcp.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
     if (this.vault) { try { this.credential.storage = await this.vault.available() ? 'secure' : 'session'; const key = await this.vault.load(); this.credential.saved = !!key; if (key && this.store.state.config && officialDeepSeek(this.store.state.config)) { this.key = key; this.protectedKey = true; } } catch { this.credential.error = '安全存储不可用或凭据无法解密；请解锁系统钥匙串、重新保存或删除凭据'; } }
     for (const session of this.store.state.sessions) {
@@ -51,7 +51,15 @@ export class Runtime {
   private idle(id: string) { if (this.busy.has(id)) throw new Error('会话仍在执行，请先取消或等待完成'); }
   private redact = (text: string) => this.key ? text.split(this.key).join('[REDACTED]') : text;
   private project(id: string) { const project = this.store.state.projects.find(p => p.id === id); if (!project) throw new Error('项目不存在'); return project; }
-  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, browserConnected: this.browsers.get(this.store.state.selectedId ?? '')?.status.state === 'connected', browserSessions: Object.fromEntries([...this.browsers].map(([id, browser]) => [id, browser.status])) }); }
+  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, mcpServers: this.mcp.snapshot(), browserConnected: false }); }
+  private cancelMcpCalls(serviceId:string) {
+    for(const [sessionId,agent] of this.agents){
+      const runId=agent.activeRunId;if(!runId)continue;
+      const events=this.events.filter(event=>event.runId===runId&&event.sessionId===sessionId);
+      const call=events.findLast(event=>event.type==='tool_requested');
+      if(call && (call.data.source as {serviceId?:string}|undefined)?.serviceId===serviceId && !events.some(event=>event.type==='tool_result'&&event.data.callId===call.data.id))agent.cancel(runId);
+    }
+  }
   private async workspace(session: SessionInfo) { if (session.projectId) { const project = this.project(session.projectId); try { return await WorkspaceFiles.grant(project.workspace, this.store.directory, project.identity); } catch { throw new Error('项目目录不可用或已改变，请恢复原目录或新建项目'); } } if (!session.workspace) throw new Error('请先授权此会话的工作目录'); return WorkspaceFiles.grant(session.workspace, this.store.directory); }
   private provider(): ModelProvider {
     const config = this.store.state.config; if (!config) throw new Error('请先配置模型；也可以明确选择离线验证模式');
@@ -65,6 +73,11 @@ export class Runtime {
     const command = parsed.data;
     if (this.keyChanging && command.type !== 'snapshot') throw new Error('凭据正在更新，请稍后重试');
     if (command.type === 'snapshot') return { snapshot: this.snapshot() };
+    if (command.type === 'mcp.save') { if(command.id)this.cancelMcpCalls(command.id); await this.mcp.save(command.id,command.config,command.env,command.rememberEnv); return {snapshot:this.snapshot()}; }
+    if (command.type === 'mcp.activate') { await this.mcp.activate(command.id); return {snapshot:this.snapshot()}; }
+    if (command.type === 'mcp.disable') { this.cancelMcpCalls(command.id); await this.mcp.disable(command.id); return {snapshot:this.snapshot()}; }
+    if (command.type === 'mcp.delete') { this.cancelMcpCalls(command.id); await this.mcp.delete(command.id); return {snapshot:this.snapshot()}; }
+    if (command.type === 'mcp.refresh') { await this.mcp.refresh(command.id); return {snapshot:this.snapshot()}; }
     if (command.type === 'model.list') return { models: await this.provider().listModels({ signal: AbortSignal.timeout(10000) }) };
     if (command.type === 'project.create') {
       const files = await WorkspaceFiles.grant(command.path, this.store.directory); await files.resolve('');
@@ -132,18 +145,6 @@ export class Runtime {
       await this.store.save(); this.publish({type: 'changed'}); return {};
     }
     if (session.archivedAt) throw new Error('此对话已归档，请先恢复后再操作');
-    if (command.type === 'browser.connect') {
-      this.idle(session.id); this.busy.add(session.id);
-      let browser = this.browsers.get(session.id);
-      if (!browser) { browser = new BrowserSession(() => this.publish({ type: 'changed' }), this.browserFactory); this.browsers.set(session.id, browser); }
-      try { await browser.connect(); } finally { this.busy.delete(session.id); }
-      return { snapshot: this.snapshot() };
-    }
-    if (command.type === 'browser.disconnect') {
-      const agent = this.agents.get(session.id); if (agent?.activeRunId) agent.cancel(agent.activeRunId);
-      await this.browsers.get(session.id)?.disconnect();
-      return { snapshot: this.snapshot() };
-    }
     if(command.type==='preview.tabs.claim'){this.tabs.claim(session.id,command.ticket);return{};}
     if(command.type==='preview.tabs.complete'){this.tabs.complete(session.id,command.ticket,command.tabs);return{};}
     if (command.type === 'preview.claim') return {preview:this.previews.claim(session.id,command.ticket)};
@@ -159,7 +160,7 @@ export class Runtime {
     else if (command.type === 'run.cancel' || command.type === 'run.approve') {
       const agent = this.agents.get(session.id);
       if (!agent || agent.activeRunId !== command.runId) throw new Error('没有匹配的运行任务');
-      if (command.type === 'run.cancel') { agent.cancel(command.runId); await this.browsers.get(session.id)?.disconnect('任务取消，浏览器已关闭'); } else agent.approve(command.runId, command.callId, command.allowed);
+      if (command.type === 'run.cancel') { agent.cancel(command.runId);  } else agent.approve(command.runId, command.callId, command.allowed);
       return {};
     } else {
       this.idle(session.id); this.busy.add(session.id);
@@ -181,14 +182,14 @@ export class Runtime {
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
         const tools = new Registry<Tool>(); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
-        for (const tool of this.browsers.get(session.id)?.tools() ?? []) tools.register(tool.name, tool);
+
         const conversation = new ConversationStore(this.store.directory, session.id);
         const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
-        const runKey = this.key, redactRun = (text: string) => runKey ? text.split(runKey).join('[REDACTED]') : text;
-        const agent = new Agent(provider, tools, this.log(session.id), event => {
+        const runKey = this.key, redactRun = (text: string) => this.mcp.redact(runKey ? text.split(runKey).join('[REDACTED]') : text);
+        const agent = new Agent(provider, () => [...tools.values(), ...this.mcp.tools()], this.log(session.id), event => {
           if (event.type === 'started') session.activeRunId = event.runId;
           this.events.push(event); session.updatedAt = event.at; this.publish({ type: 'event', event });
-        }, session.id, redactRun, runKey.length, command.type === 'files.write' ? undefined : messages => conversation.save(messages, redactRun));
+        }, session.id, redactRun, Math.max(runKey.length, this.mcp.redactionLength), command.type === 'files.write' ? undefined : messages => conversation.save(messages, redactRun));
         this.agents.set(session.id, agent);
         // No shared await gap after claiming busy: all commands for this session stay isolated.
         const task = agent.run(prompt, maxSteps, history).catch(() => this.publish({ type: 'disconnected', message: '日志写入失败，请检查数据目录；任务已停止。' })).finally(async () => {
@@ -201,5 +202,5 @@ export class Runtime {
     }
     await this.store.save(); this.publish({ type: 'changed' }); return {};
   }
-  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await Promise.all([...this.browsers.values()].map(browser => browser.disconnect('Host 已关闭'))); await Promise.allSettled([...this.tasks]); await this.store.save(); }
+  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await this.mcp.shutdown(); await Promise.allSettled([...this.tasks]); await this.store.save(); }
 }

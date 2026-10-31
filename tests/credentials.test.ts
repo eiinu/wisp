@@ -93,3 +93,16 @@ it('restores through the compiled Host private IPC broker without returning a Ke
     await call({ type: 'model.clearKey' }); expect(saved).toBeUndefined(); expect((await call({ type: 'snapshot' })).result.snapshot.keyPresent).toBe(false);
   } finally { child.kill(); await new Promise<void>(resolveExit => child.once('exit', () => resolveExit())); await rm(root, { recursive: true, force: true }); }
 });
+it('isolates MCP secure env by service and never loads it through renderer metadata',async()=>{
+ const {mcpEnvironmentOperation}=await import('../apps/desktop/src/mcp-environment.js');const {randomUUID}=await import('node:crypto');
+ const root=await mkdtemp(join(tmpdir(),'wisp-mcp-vault-')),crypto=fakeCrypto(),id=randomUUID(),other=randomUUID(),signal=new AbortController().signal,binding='a'.repeat(64);
+ try{
+  await mcpEnvironmentOperation('mcp.env.save',{id,env:{TOKEN:'fake-mcp-secret'},binding},root,crypto,signal);
+  const file=join(root,'mcp-secrets',id,'credentials','deepseek.enc');expect((await readFile(file)).includes(Buffer.from('fake-mcp-secret'))).toBe(false);
+  expect(await mcpEnvironmentOperation('mcp.env.load',{id},root,crypto,signal)).toEqual({env:{TOKEN:'fake-mcp-secret'},binding});
+  await expect(mcpEnvironmentOperation('mcp.env.load',{id:other},root,crypto,signal)).rejects.toThrow('未保存');
+  await expect(mcpEnvironmentOperation('mcp.env.load',{id:'../../escape'},root,crypto,signal)).rejects.toThrow('ID');
+  await mcpEnvironmentOperation('mcp.env.delete',{id},root,crypto,signal);await expect(readFile(file)).rejects.toThrow();
+  crypto.isEncryptionAvailable=()=>false;await expect(mcpEnvironmentOperation('mcp.env.save',{id,env:{TOKEN:'fake-never-plain'},binding},root,crypto,signal)).rejects.toThrow('安全存储');await expect(readFile(file)).rejects.toThrow();
+ }finally{await rm(root,{recursive:true,force:true});}
+});

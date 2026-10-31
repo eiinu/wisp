@@ -19,7 +19,7 @@ export async function startSimulator(key: string, port = 0, tickMs = 40) {
       const input = JSON.parse(body); if (input.model !== simulationModel || !Array.isArray(input.messages)) { json(400, { error: { code: 'fixture_model_required' } }); return; }
       stats.requests++;
       const userIndex = input.messages.findLastIndex((m: any) => m.role === 'user'), current = input.messages.slice(userIndex), prompt = String(current[0]?.content ?? '');
-      const scenario = /\[demo:(chat|write|deny|cancel|retry|error|read|multi|escape|invalid|loop|openweb|search|replace|mkdir|move|trash|readpage)\]/.exec(prompt)?.[1] ?? 'chat';
+      const scenario = /\[demo:(chat|write|deny|cancel|retry|error|read|multi|escape|invalid|loop|openweb|search|replace|mkdir|move|trash|readpage|mcp)\]/.exec(prompt)?.[1] ?? 'chat';
       const result = current.findLast((m: any) => m.role === 'tool');
       const failureKey = `${scenario}:${prompt}:${current.length}`;
       if (((scenario === 'retry' && result) || scenario === 'error') && !failures.has(failureKey)) { failures.add(failureKey); stats.retries++; json(scenario === 'error' ? 400 : 503, { error: { code: 'development_injected_error' } }); return; }
@@ -34,7 +34,11 @@ export async function startSimulator(key: string, port = 0, tickMs = 40) {
         trash:{name:'files_trash',args:{path:'new-folder/renamed.md'}},
         readpage:{name:'list_preview_tabs',args:{}}
       };
-      if(!result&&basic[scenario]) {
+      if(!result&&scenario==='mcp') {
+        const tool=input.tools?.find((tool:any)=>tool.function?.name?.startsWith('mcp_'));
+        if(!tool)throw new Error('MCP fixture tool unavailable');
+        frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:tool.function.name,arguments:JSON.stringify({text:'offline MCP result'})}}]});frame({},'tool_calls');
+      } else if(!result&&basic[scenario]) {
         const call=basic[scenario];frame({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]});frame({},'tool_calls');
       } else if(scenario==='readpage'&&result&&current.filter((m:any)=>m.role==='tool').length===1&&result.content.startsWith('{')&&JSON.parse(result.content).tabs?.some((t:any)=>t.kind==='web')) {
         const tabs=JSON.parse(result.content).tabs,tab=tabs.find((t:any)=>t.kind==='web'&&!t.active)??tabs.find((t:any)=>t.kind==='web');

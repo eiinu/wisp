@@ -1,3 +1,4 @@
+import { mcpEnvironmentOperation } from './mcp-environment.js';
 import { trashOperation } from './trash.js';
 import { createBrowser } from './browser.js';
 import { credentialVault } from './credential-vault.js';
@@ -38,7 +39,7 @@ async function startDesktop() {
     if(message?.type==='desktop-request'&&typeof message.id==='string'){
       if(desktopCalls.has(message.id))return;const controller=new AbortController();desktopCalls.set(message.id,controller);
       try {
-        const value=message.operation?.startsWith('trash.') ? await trashOperation(message.operation,message.payload,app.getPath('userData'),controller.signal,shell.trashItem) : browser ? await browser.pageOperation(message.operation,message.payload,controller.signal) : (()=>{throw new Error('没有可读取的桌面网页标签');})();
+        const value=message.operation?.startsWith('mcp.env.') ? await mcpEnvironmentOperation(message.operation,message.payload,app.getPath('userData'),safeStorage,controller.signal) : message.operation?.startsWith('trash.') ? await trashOperation(message.operation,message.payload,app.getPath('userData'),controller.signal,shell.trashItem) : browser ? await browser.pageOperation(message.operation,message.payload,controller.signal) : (()=>{throw new Error('没有可读取的桌面网页标签');})();
         if(host.connected&&!controller.signal.aborted)host.send({type:'desktop-response',id:message.id,value});
       }catch(error){if(host.connected&&!controller.signal.aborted)host.send({type:'desktop-response',id:message.id,error:error instanceof Error?error.message:'桌面操作失败'});}
       finally{desktopCalls.delete(message.id);}

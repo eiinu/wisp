@@ -93,3 +93,30 @@ it('runs new tools through actual DeepSeek SSE and Host approval/continuation wi
  unsubscribeTabs();
  }finally{await runtime.shutdown();await simulator.close();await rm(root,{recursive:true,force:true});}
 },20000);
+it('runs discovered stdio MCP through real DeepSeek HTTP adapter, approval and model continuation without real keys',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'wisp-mcp-http-')),simulator=await startSimulator('fake-mcp-api-key',0,0);
+ const runtime=new Runtime(root,undefined,undefined,{baseUrl:simulator.origin,key:'fake-mcp-api-key'});await runtime.init();
+ try{
+  await runtime.request({type:'mcp.save',config:{name:'stdio integration',command:process.execPath,args:[resolve('scripts/fixtures/mcp-stdio.mjs')]}});
+  const id=runtime.snapshot().mcpServers![0]!.id;expect(runtime.snapshot().mcpServers![0]!.state).toBe('disabled');
+  await runtime.request({type:'mcp.activate',id,confirmed:true});const sessionId=(await runtime.request({type:'session.create'})).sessionId!;
+  await runtime.request({type:'run.start',sessionId,prompt:'[demo:mcp]'});
+  await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.type==='approval_requested')).toBe(true));
+  const approval=runtime.snapshot().events.find(e=>e.type==='approval_requested')!;expect(runtime.snapshot().events.some(e=>e.type==='tool_started')).toBe(false);
+  await runtime.request({type:'run.approve',sessionId,runId:approval.runId,callId:approval.data.id,allowed:true});
+  await expect(runtime.request({type:'run.approve',sessionId,runId:approval.runId,callId:approval.data.id,allowed:true})).rejects.toThrow();
+  await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.type==='completed')).toBe(true),{timeout:5000});
+  expect(runtime.snapshot().events.find(e=>e.type==='tool_result')?.data.text).toContain('offline MCP result');expect(runtime.snapshot().events.find(e=>e.type==='assistant')?.data.text).toContain('offline MCP result');
+  expect(JSON.stringify(runtime.snapshot())).not.toContain('fake-mcp-api-key');
+  await vi.waitFor(()=>expect(runtime.snapshot().sessions.find(s=>s.id===sessionId)?.activeRunId).toBeUndefined());
+  const other=(await runtime.request({type:'session.create',title:'Pending MCP approval'})).sessionId!;
+  await runtime.request({type:'run.start',sessionId:other,prompt:'[demo:mcp]'});
+  await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.sessionId===other&&e.type==='approval_requested')).toBe(true));
+  const pending=runtime.snapshot().events.find(e=>e.sessionId===other&&e.type==='approval_requested')!;
+  await runtime.request({type:'mcp.disable',id});
+  await vi.waitFor(()=>expect(runtime.snapshot().events.some(e=>e.runId===pending.runId&&e.type==='cancelled')).toBe(true));
+  await expect(runtime.request({type:'run.approve',sessionId:other,runId:pending.runId,callId:pending.data.id,allowed:true})).rejects.toThrow();
+  expect(runtime.snapshot().events.some(e=>e.runId===pending.runId&&e.type==='tool_started')).toBe(false);
+  expect(runtime.snapshot().mcpServers![0]!.tools).toHaveLength(0);
+ }finally{await runtime.shutdown();await simulator.close();await rm(root,{recursive:true,force:true});}
+});

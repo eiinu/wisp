@@ -5,7 +5,7 @@ import { EventLog } from './log.js';
 export class Agent {
   private active?: { id: string; controller: AbortController };
   private pending?: { runId: string; callId: string; resolve: (value: boolean) => void };
-  constructor(private model: ModelProvider | GenerationProvider, private tools: Registry<Tool>, private log: EventLog, private publish: (event: RunEvent) => void, private sessionId?: string, private redact: (text: string) => string = text => text, private credentialLength = 0, private checkpoint?: (messages: Message[]) => Promise<void>) {}
+  constructor(private model: ModelProvider | GenerationProvider, private tools: Registry<Tool> | (() => Tool[]), private log: EventLog, private publish: (event: RunEvent) => void, private sessionId?: string, private redact: (text: string) => string = text => text, private credentialLength = 0, private checkpoint?: (messages: Message[]) => Promise<void>) {}
   private redactData(value: unknown): unknown {
     if (typeof value === 'string') return this.redact(value);
     if (Array.isArray(value)) return value.map(item => this.redactData(item));
@@ -33,6 +33,7 @@ export class Agent {
       await emit('started', { prompt, maxSteps });
       for (let step = 0; step < maxSteps; step++) {
         signal.throwIfAborted();
+        const availableTools = typeof this.tools === 'function' ? this.tools() : this.tools.values();
         let chunks = Promise.resolve();
         let buffered = '';
         const stream = (text: string) => {
@@ -44,7 +45,7 @@ export class Agent {
         };
         const generate = async () => {
           let message: Message | undefined, thinking = false;
-          for await (const event of asModelProvider(this.model).stream({ messages, tools: this.tools.values().map(({ name, description, inputSchema }) => ({ name, description, inputSchema: structuredClone(inputSchema) })) }, { signal })) {
+          for await (const event of asModelProvider(this.model).stream({ messages, tools: availableTools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema: structuredClone(inputSchema) })) }, { signal })) {
             signal.throwIfAborted();
             if (event.type === 'reasoning_delta' && !thinking) { thinking = true; await emit('model_activity', { phase: 'thinking', step }); }
             if (event.type === 'text_delta') stream(event.delta);
@@ -79,10 +80,11 @@ export class Agent {
           // No mutable provider-owned object is retained across the approval wait.
           const freeze = (value: unknown): void => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } };
           freeze(call);
-          await emit('tool_requested', { ...call, step });
+          await emit('tool_requested', { ...call, step, source: availableTools.find(tool => tool.name === call.name)?.source });
           let tool: Tool, prepared: Awaited<ReturnType<NonNullable<Tool['prepare']>>> | undefined;
           try {
-            tool = this.tools.get(call.name);
+            const found = availableTools.find(tool => tool.name === call.name);
+            if (!found) throw new Error('Unknown tool: ' + call.name); tool = found;
             await tool.validate?.(call.args);
             prepared = tool.prepare ? await abortable(tool.prepare(call.args, signal), signal) : undefined;
             signal.throwIfAborted();
