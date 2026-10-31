@@ -272,3 +272,8 @@ button{transition:background-color .12s ease,color .12s ease}
 .tool-activity summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-activity summary small { margin-left: auto; flex-shrink: 0; }
 .tool-activity pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.execution-process > summary { color: var(--text-secondary, #666); cursor: pointer; padding-block: 8px; font-size: 13px; }
+.execution-round { border-left: 1px solid var(--border, #ddd); padding-left: 16px; margin: 12px 0 16px 4px; min-width: 0; }
+.execution-round h4 { color: var(--text-secondary, #666); font-size: 12px; font-weight: 500; margin: 0 0 8px; }
+.execution-round .tool-trace { border: 0; background: transparent; margin-block: 4px; }
+.tool-problems { color: var(--text-secondary, #666); font-size: 13px; margin: 0; }

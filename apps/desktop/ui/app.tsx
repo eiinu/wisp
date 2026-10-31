@@ -2,6 +2,7 @@ import React, { useCallback, useReducer, useEffect, useLayoutEffect, useRef, use
 import type { WorkbenchBridge, Request, Snapshot, RunEvent, Result } from '@wisp/core';
 import { webBridge } from './bridge.js';
 import { copyText } from './clipboard.js';
+import { groupExecution } from './tool-groups.js';
 import { ToolActivity } from './tool-activity.js';
 import { Markdown } from './markdown.js';
 import { ProjectSidebar } from './project-sidebar.js';
@@ -160,10 +161,12 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
         {!runs.length ? <div className="welcome"><span className="welcome-mark">w</span><h1>今天，我们一起完成什么？</h1><p>从一个想法到真正完成。<br/>让 Wisp 帮你处理文件、梳理信息，推进手边的事。</p><div className="suggestions"><button onClick={() => { setDrafts(d => ({ ...d, [selected ?? 'new']: '列出文件' })); chooseWorkspace(); }}><WorkspaceIcon name="folder"/><strong>看看我的工作目录</strong><small>授权后浏览和阅读本地文件</small></button><button onClick={() => { dispatchPreview({type: 'open', id: `web:${crypto.randomUUID()}`, target: {kind: 'web', url: ''}}); setPanel(true); }}><WorkspaceIcon name="globe"/><strong>打开一个网页</strong><small>在侧面查看你选择的链接</small></button></div></div> : runs.map(runId => {
           const run = events.filter(e => e.runId === runId), start = run.find(e => e.type === 'started'), terminal = run.findLast(e => ['completed', 'failed', 'cancelled'].includes(e.type));
           const steps = [...new Set(run.filter(e => e.type === 'assistant' || e.type === 'assistant_delta').map(e => Number(e.data.step ?? 0)))];
+          const {answers} = groupExecution(run);
           const pending = run.filter(e => e.type === 'approval_requested' && !run.some(n => n.type === 'approval_resolved' && n.data.callId === e.data.id));
           return <div className="turn" key={runId}><div className="user-message">{String(start?.data.prompt ?? '')}</div><div className="assistant-message"><span className="assistant-mark">w</span><div className="assistant-body">
-            {steps.map(step => { const final = run.find(e => e.type === 'assistant' && Number(e.data.step ?? 0) === step); const text = final ? String(final.data.text) : run.filter(e => e.type === 'assistant_delta' && Number(e.data.step) === step).map(e => String(e.data.text)).join(''); return <Markdown key={step} text={text}/>; })}
+
             <ToolActivity events={run} ended={!!terminal} canPreview={connected && !!current?.workspace} previewUnavailableReason={!connected ? '本机服务未连接，连接后可预览文件' : '此会话尚未授权工作目录，授权后可预览文件'} openFile={path => { if (selected && current?.workspace) openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path}); }}/>
+            {answers.map((round,index)=><Markdown key={round.step ?? `history-${index}`} text={round.text}/>)}
             {!terminal && pending.map(e => <div className="approval" key={e.id}><div className="approval-title"><WorkspaceIcon name="shield"/> 需要你的批准</div><p>{String(e.data.description)}</p><strong>{String(e.data.name)}</strong><pre>{JSON.stringify(e.data.args, null, 2)}</pre><small>仅批准这一次调用。拒绝后不会执行此操作。</small><div><button className="primary" disabled={!connected || approving.includes(String(e.data.id))} onClick={() => void approve(selected!, runId, String(e.data.id), true)}>批准执行</button><button disabled={!connected || approving.includes(String(e.data.id))} onClick={() => void approve(selected!, runId, String(e.data.id), false)}>拒绝</button></div></div>)}
             {terminal && terminal.type !== 'completed' && <div className={`run-notice ${terminal.type}`}><span>{labels[terminal.type]} · {String(terminal.data.reason ?? '')}</span>{runId === runs.at(-1) && <button disabled={!connected || !!active} onClick={() => void action(() => api({ type: 'run.retry', sessionId: selected!, }))}>重试</button>}</div>}
             {terminal?.type === 'completed' && <div className="message-actions"><span><WorkspaceIcon name="check"/> 已完成</span><button onClick={() => void action(async () => { await copyText(run.filter(e => e.type === 'assistant').map(e => String(e.data.text)).join('\n'), window.wisp); setCopied(runId); })}><WorkspaceIcon name={copied === runId ? 'check' : 'copy'}/>{copied === runId ? '已复制' : '复制回复'}</button></div>}

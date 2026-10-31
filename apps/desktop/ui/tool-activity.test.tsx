@@ -29,3 +29,13 @@ it('explains why a successful file result cannot currently be previewed', async 
  expect(container.querySelector('button')!.title).toBe('此会话尚未授权工作目录');
  expect(container.querySelector('.file-status')!.textContent).toBe('此会话尚未授权工作目录');
 });
+it('collapses completed execution by default while keeping failed status visible outside it', async () => {
+ await render(<ToolActivity events={events} ended canPreview openFile={vi.fn()}/>);
+ expect(container.querySelector<HTMLDetailsElement>('.execution-process')!.open).toBe(false);
+ expect(container.querySelector('.execution-round')!.textContent).toContain('未记录轮次');
+ await render(<ToolActivity events={[events[0],{...events[1],data:{...events[1].data,isError:true}}]} ended canPreview openFile={vi.fn()}/>);
+ const process=container.querySelector<HTMLDetailsElement>('.execution-process')!;
+ process.open=false;
+ expect(container.querySelector('[role=status]')!.closest('details')).toBeNull();
+ expect(container.querySelector('[role=status]')!.textContent).toContain('1 项失败');
+});

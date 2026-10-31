@@ -79,7 +79,7 @@ export class Agent {
           // No mutable provider-owned object is retained across the approval wait.
           const freeze = (value: unknown): void => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } };
           freeze(call);
-          await emit('tool_requested', { ...call });
+          await emit('tool_requested', { ...call, step });
           let tool: Tool;
           try {
             tool = this.tools.get(call.name);
@@ -90,25 +90,25 @@ export class Agent {
             const text = JSON.stringify({ error: 'invalid_tool_request', message: this.redact(error instanceof Error ? error.message : 'Invalid tool request') });
             messages.push({ role: 'tool', text, callId: call.id, toolName: call.name, isError: true });
             await this.checkpoint?.(messages);
-            await emit('tool_result', { callId: call.id, name: call.name, text, isError: true });
+            await emit('tool_result', { step, callId: call.id, name: call.name, text, isError: true });
             continue;
           }
           const execute = tool.execute.bind(tool);
           if (tool.requiresApproval) {
             const decision = new Promise<boolean>(resolve => { this.pending = { runId: id, callId: call.id, resolve }; });
-            await emit('approval_requested', { ...call, description: tool.description });
+            await emit('approval_requested', { ...call, step, description: tool.description });
             let allowed: boolean;
             try { allowed = await abortable(decision, signal); } finally { this.pending = undefined; }
-            await emit('approval_resolved', { callId: call.id, allowed });
+            await emit('approval_resolved', { step, callId: call.id, allowed });
             if (!allowed) {
               messages.push({ role: 'tool', text: 'User denied this action. Do not retry.', callId: call.id, toolName: call.name, isError: true });
               await this.checkpoint?.(messages);
-              await emit('tool_result', { callId: call.id, text: 'Denied by user', denied: true });
+              await emit('tool_result', { step, callId: call.id, text: 'Denied by user', denied: true });
               continue;
             }
           }
           signal.throwIfAborted();
-          await emit('tool_started', { callId: call.id, name: call.name });
+          await emit('tool_started', { step, callId: call.id, name: call.name });
           let text: string, isError = false;
           try { text = await abortable(execute(call.args, signal), signal); signal.throwIfAborted(); }
           catch (error) {
@@ -117,7 +117,7 @@ export class Agent {
           }
           messages.push({ role: 'tool', text, callId: call.id, toolName: call.name, isError });
           await this.checkpoint?.(messages);
-          await emit('tool_result', { callId: call.id, name: call.name, text, isError });
+          await emit('tool_result', { step, callId: call.id, name: call.name, text, isError });
         }
       }
       await emit('failed', { reason: 'Step budget exhausted' });
