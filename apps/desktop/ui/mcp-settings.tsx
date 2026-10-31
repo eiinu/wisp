@@ -26,7 +26,8 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
   try{await request({type:'mcp.save',id,config:{...draft,args:parsed,cwd:draft.cwd?.trim()||undefined},...(replace?{env:Object.fromEntries(variables.map(row=>[row.name,row.value]))}:{}),rememberEnv:remember});reset();setStatus('配置已保存，服务保持禁用。确认信任后再激活。');}finally{setVariables(current=>current.map(row=>({...row,value:''})));}
  };
  return <section className="mcp-settings" aria-label="本地 MCP 管理">
-  <p className="settings-note">添加你已安装的 stdio MCP 服务。激活会在本机运行指定命令，拥有你的系统权限，<strong>不受项目目录授权限制</strong>。仅添加你信任的服务；工具调用仍逐次审批。Wisp 不内置或自动安装 MCP 服务。</p>
+  <p className="settings-note">添加你已安装的 stdio MCP 服务。激活会在本机运行指定命令，拥有你的系统权限，<strong>不受项目目录授权限制</strong>。仅添加你信任的服务；工具调用仍逐次审批。Wisp 不内置 MCP 服务。</p>
+  <p className="settings-note">也可以在对话中提供 MCP 安装说明，让助手整理方案。你批准后，Wisp 可注册已有服务或安装指定版本的公共 npm 包，再单独确认激活。密钥请仅在下方编辑服务的环境变量中填写，不要发到聊天。</p>
   {!connected&&<p role="status">本机服务未连接，连接后可管理 MCP。</p>}
   <div className="mcp-heading"><h3>服务</h3><button ref={add} disabled={!connected||pending||!!draft} onClick={()=>edit()}><WorkspaceIcon name="plus"/>添加本地 MCP</button></div>
   {!servers.length&&!draft&&<p className="settings-note">尚未添加服务。配置默认禁用，重启后也需要手动激活。</p>}

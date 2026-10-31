@@ -52,3 +52,5 @@ Wisp 桌面端支持用户自定义的标准 **stdio MCP 工具服务**。设置
 验证使用模拟 npm runner 和临时标准 stdio 服务，并通过真实 DeepSeek HTTP/SSE adapter → Host → 安装审批 → 注册 → 独立激活审批 → 协议发现 → 工具调用审批 → 模型续答。未下载或执行真实第三方包；npm 12 在实际 macOS 环境的下载安装仍需实机验证。
 
 安装策略参考官方 [npm ci](https://docs.npmjs.com/cli/commands/npm-ci/) 文档的 `ignore-scripts`、来源限制、完整性锁文件语义。
+
+UI 走查：`qa.html` → 工作台样例 → 工具交互样例 → “对话安装 → 激活 MCP（仅内存）”。先批准安装，设置中出现禁用的 QA 配置；对话再出现独立激活审批。可拒绝激活并检查配置仍禁用，或批准后检查模拟工具列表。“注册已有 MCP”样例明确不声称安装。以上只改变内存，不访问 registry，不运行进程。

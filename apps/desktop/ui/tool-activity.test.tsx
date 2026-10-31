@@ -51,3 +51,9 @@ it('shows MCP service and remote name within the existing execution hierarchy wi
  expect(container.querySelector('.tool-trace summary strong')?.textContent).toBe('QA 服务 · echo');
  expect(container.querySelector('button')).toBeNull();expect(container.querySelector<HTMLDetailsElement>('.execution-process')!.open).toBe(false);
 });
+it('distinguishes installation, registration and activation in chat tool summaries',async()=>{
+ for(const [name,label] of [['mcp_register','注册已有 MCP'],['mcp_install_npm','安装并注册 MCP'],['mcp_activate_service','激活并检查 MCP']]){
+  await render(<ToolActivity events={[{...events[0],data:{id:'c',name,args:{}}}]} ended={false} canPreview={false} openFile={vi.fn()}/>);
+  expect(container.querySelector('.tool-trace summary strong')?.textContent).toBe(label);expect(container.querySelector('button')).toBeNull();
+ }
+});
