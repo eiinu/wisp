@@ -27,3 +27,14 @@ it('supports typed components and remark/rehype extensions with sanitization las
   }}/>);
   expect(html).toContain('<h2 class="custom-title">remark extension</h2>'); expect(html).not.toContain('<script');
 });
+
+it('renders inline and display mathematics and highlights only configured code languages', () => {
+  const html = renderToStaticMarkup(<Markdown text={'Inline $a+b=c$\n\n$$\n\\frac{1}{2} + \\sqrt{x}\n$$\n\n```js\nconst value = "hello";\n```\n\n```unknown-language\n<untouched>\n```'}/>);
+  expect(html).toContain('class="katex"'); expect(html).toContain('katex-display'); expect(html).toContain('<math');
+  expect(html).toContain('hljs-keyword'); expect(html).toContain('hljs-string'); expect(html).toContain('&lt;untouched&gt;'); expect(html).toContain('复制代码');
+});
+it('never trusts math HTML or resource commands and tolerates incomplete streamed formulas', () => {
+  const html = renderToStaticMarkup(<Markdown text={'$\\href{https://evil.invalid}{click}$ $\\includegraphics{https://evil.invalid/pixel}$ $\\htmlClass{fake}{x}$'}/>);
+  expect(html).not.toMatch(/href="https:\/\/evil|src="https:\/\/evil|class="fake"/);
+  for (const text of ['$', '$a+', '$$\n\\frac{', '$$\n\\frac{1}{2}', '$\\unknown{', '$\\def\\x{\\x}\\x$']) expect(() => renderToStaticMarkup(<Markdown text={text}/>)).not.toThrow();
+});

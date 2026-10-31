@@ -35,3 +35,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .modal-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 28px 25px}
 @media(max-width:760px){.modal-heading{padding:18px 22px 14px}.modal-body{padding:18px 22px 22px}}
 @media(max-height:400px){.modal-heading{padding-top:10px;padding-bottom:10px}.modal-body{padding-top:12px;padding-bottom:12px}}
+.code-block{max-width:100%;margin:1em 0;border:1px solid #e4e4e4;border-radius:10px;overflow:hidden;background:#f7f7f7}
+.code-toolbar{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;font-size:11px;color:#666;border-bottom:1px solid #e7e7e7}.code-toolbar button{font-size:11px;padding:4px 8px}
+.markdown .code-block pre{margin:0;border-radius:0;background:#f7f7f7}.markdown .code-block code.hljs{padding:0;background:transparent}
+.markdown .katex-display{overflow-x:auto;overflow-y:hidden;padding:8px 0;max-width:100%}.markdown .katex{font-size:1.1em}.markdown .katex-error{overflow-wrap:anywhere}

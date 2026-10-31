@@ -14,7 +14,7 @@ const extensions: MarkdownExtensions = {
 <Markdown text={content} extensions={extensions} />
 ```
 
-扩展来自受信任的应用代码，不读取模型生成的可执行组件或插件。默认忽略原始 HTML，rehype-sanitize 始终在 rehype 扩展后运行。新增语法应输出标准安全节点；新增组件负责自己的属性、链接与资源安全，不能直接注入 HTML。
+扩展来自受信任的应用代码，不读取模型生成的可执行组件或插件。默认忽略原始 HTML，rehype-sanitize 在应用提供的 rehype 扩展后运行，再由受信任的 KaTeX 渲染数学。新增语法应输出标准安全节点；新增组件负责自己的属性、链接与资源安全，不能直接注入 HTML。
 
 默认只启用无凭据的 HTTP/HTTPS 链接及文内锚点；不启用相对文件链接、脚本/data/file 协议，不自动加载 Markdown 中的图片。桌面外链通过现有受限 `openUrl` 桥接，Web 使用隔离的新标签页。文件图片预览继续走授权目录的 Host 读取，与 Markdown 外部图片隔离。
 
@@ -25,3 +25,10 @@ const extensions: MarkdownExtensions = {
 右侧文件面板只通过 Host 的授权目录接口读取实际文件：`.txt` 等文本保持原样，`.md`/`.markdown` 使用统一 Markdown 组件。支持 UTF-8（含 BOM）和带 BOM 的 UTF-16 LE/BE；无法解码时明确报错，不显示乱码后继续编辑。空文件、加载、失败、断开都有独立提示。
 
 单文件读取仍限制 2 MB，不放宽目录/符号链接/硬链接限制。为了避免大文件拖慢交互，面板最多渲染前 100,000 个字符，超出时明确标记截断并禁用面板编辑；写入仍受 200,000 字节限制并需要审批。切换会话或授权目录会重新挂载面板，旧请求结果与错误不会进入新会话。新建文件及提交审批不等于写入完成。
+
+
+## 数学与代码
+
+`$a+b=c$` 与独立行的 `$$...$$` 使用 remark-math/rehype-katex。先清理不可信内容，再运行 KaTeX（trust=false，限制宏展开与尺寸）。CSS 与字体随 Vite 构建本地打包；CSP 仅额外允许数学布局需要的 style 属性，脚本策略仍保持 self，原始 HTML 仍不解析。公式中的 HTML/外链命令不受信任，不自动加载资源。
+
+代码高亮仅打包 JavaScript、TypeScript、Python、JSON、Bash、CSS、HTML/XML、SQL 语法；未知语言及超过 32,000 字符的代码显示原文，不自动猜测语言。代码按文本复制，独立横向滚动，不注入高亮 HTML。

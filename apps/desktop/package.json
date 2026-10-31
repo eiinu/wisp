@@ -5,11 +5,16 @@
   "type": "module",
   "dependencies": {
     "@wisp/core": "workspace:*",
+    "highlight.js": "11.12.0",
+    "katex": "0.19.1",
+    "lowlight": "3.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
     "rehype-sanitize": "6.0.0",
-    "remark-gfm": "4.0.1"
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0"
   },
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/main.js && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs && vite build",
