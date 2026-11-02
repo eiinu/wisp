@@ -140,6 +140,7 @@ export class SkillRegistry {
 export class SkillSnapshot {
   constructor(private registry:SkillRegistry,private records:RecordEntry[]){}
   get hasSkills(){return this.records.length>0;}
+  executionRevision(id:string,signal:AbortSignal){const record=this.records.find(r=>r.id===id);if(!record)throw new Error('技能不在本轮可用清单；请开始新任务');this.registry.assert(record,signal);return structuredClone(record);}
   validate(ids:string[]){if(ids.length>skillLimits.selected||new Set(ids).size!==ids.length||ids.some(id=>!this.records.some(r=>r.id===id)))throw new Error('请选择最多 3 个本轮可用技能');}
   execution(selected:string[]=[]):{tools:Tool[];initialize:NonNullable<AgentLifecycle['initialize']>} {
     this.validate(selected);const loaded=new Set<string>();let emit:((type:RunEvent['type'],data:RunEvent['data'])=>Promise<void>)|undefined;

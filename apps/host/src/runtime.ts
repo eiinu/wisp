@@ -225,7 +225,7 @@ export class Runtime {
           this.events.push(event);session.updatedAt=event.at;this.publish({type:'event',event});
         };
         // Capture permissions and provider configuration before any child can start.
-        const base=[...tools.values(),...this.mcp.tools(),...this.skillInstall.tools()];
+        const base=[...tools.values(),...this.mcp.tools(),...this.skillInstall.tools(undefined,skills)];
         const family=childProvider ? new Subagents(childProvider,base,log,publish,session.id,redactRun,credentialLength,skills?.hasSkills?skills:undefined) : undefined;
         const guarded=family?.guard(base)??base;
         // Children intentionally omit global MCP installation/activation management.
