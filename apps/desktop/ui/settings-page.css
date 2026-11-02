@@ -23,3 +23,7 @@
 .settings-feedback p[role=status],.settings-feedback .error{margin:0;padding:8px 0}
 .settings-feedback .error{padding:8px 12px}
 .settings-feedback+.settings-actions{margin-top:8px}
+
+.assistant-setting-field{display:grid;gap:12px;min-width:0;font-weight:500}
+.assistant-setting-field textarea{width:100%;min-width:0;min-height:200px;max-height:60vh;resize:vertical;line-height:1.6;font-weight:400;overflow-wrap:anywhere}
+@media(max-width:480px){.settings-navigation nav{flex-wrap:wrap}}

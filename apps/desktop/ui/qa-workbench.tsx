@@ -202,6 +202,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         state.events.push(event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};
+      if(input.type==='assistant.save'){state.assistantSetting=input.text;changed();return{};}
       if(input.type==='model.save'){state.config={...input.config};changed();return{};}
       throw new Error('此工作台为开发样例：不连接 Host、模型或真实文件，请返回组件样例检查项目与文件交互。');
     },

@@ -71,12 +71,16 @@ export class Runtime {
     if (config.provider === 'offline') return asModelProvider(offlineProvider);
     if (!this.key) throw new Error('API Key 未在当前 Host 进程中设置');
     if (this.protectedKey && !officialDeepSeek(config)) throw new Error('持久化 DeepSeek Key 仅限官方 API');
-    return configuredProvider(config, this.key);
+    return configuredProvider(config, this.key, this.store.state.assistantSetting ?? '');
   }
   async request(input: unknown): Promise<Result> {
     const parsed = requestSchema.safeParse(input); if (!parsed.success) throw new Error('请求格式不正确');
     const command = parsed.data;
     if (this.keyChanging && command.type !== 'snapshot') throw new Error('凭据正在更新，请稍后重试');
+    if (command.type === 'assistant.save') {
+      this.store.state.assistantSetting = command.text;
+      await this.store.save(); this.publish({ type: 'changed' }); return {};
+    }
     if (command.type === 'snapshot') return { snapshot: this.snapshot() };
     if (command.type === 'mcp.save') { if(command.id)this.cancelMcpCalls(command.id); await this.mcp.save(command.id,command.config,command.env,command.rememberEnv); return {snapshot:this.snapshot()}; }
     if (command.type === 'mcp.activate') { await this.mcp.activate(command.id); return {snapshot:this.snapshot()}; }

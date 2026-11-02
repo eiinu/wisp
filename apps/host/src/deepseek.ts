@@ -1,3 +1,4 @@
+import { withAssistantSetting } from './assistant-setting.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { ModelConfig, ModelEvent, ModelInfo, ModelProvider, ModelRequest, ModelUsage, PrivateContinuation, ToolCall } from '@wisp/core';
 
@@ -40,7 +41,8 @@ async function limitedText(response: Response, limit: number): Promise<string> {
   const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; } return new TextDecoder().decode(bytes);
 }
 export interface DeepSeekTransport { fetch?: typeof fetch; timeoutMs?: number; retries?: number; retryDelayMs?: number }
-export function deepseekProvider(config: ModelConfig, apiKey: string, transport: DeepSeekTransport = {}): ModelProvider {
+export function deepseekProvider(config: ModelConfig, apiKey: string, transport: DeepSeekTransport = {}, assistantSetting = ''): ModelProvider {
+  const systemPrompt = withAssistantSetting(system, assistantSetting);
   const endpoint = config.baseUrl.replace(/\/+$/, ''), requestFetch = transport.fetch ?? fetch;
   const origin: Omit<PrivateContinuation, 'reasoning'> = { provider: 'deepseek', protocol: 'chat-completions', model: config.model, endpoint };
   function body(request: ModelRequest) {
@@ -52,7 +54,7 @@ export function deepseekProvider(config: ModelConfig, apiKey: string, transport:
       ...(request.toolChoice ? { tool_choice: typeof request.toolChoice === 'string' ? request.toolChoice : { type: 'function', function: { name: request.toolChoice.name } } } : {}),
       ...(request.responseFormat ? { response_format: { type: request.responseFormat } } : {}),
       ...(request.tools.length ? { tools: request.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}),
-      messages: [{ role: 'system', content: system }, ...request.messages.map(message => {
+      messages: [{ role: 'system', content: systemPrompt }, ...request.messages.map(message => {
         if (message.role === 'tool') return { role: 'tool', tool_call_id: message.callId, content: message.text };
         if (message.role === 'user') return { role: 'user', content: message.text };
         const p = message.continuation;

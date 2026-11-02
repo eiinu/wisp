@@ -23,6 +23,8 @@ Wisp 是运行在自己电脑上的个人 Agent 工作台。通过对话调用�
 
 内置文件工具仅操作明确授权的目录，不提供任意命令执行。用户激活的第三方 MCP 进程使用本机系统权限，不受项目目录限制。网页正文读取不等于自动操作网页。
 
+全局[助手设定](docs/assistant-setting.md)支持自定义表达方式与偏好，本地保存，下次任务生效，不改变工具权限。
+
 ## 文档
 
 [文档首页](docs/index.md) · [文档站与部署](docs/documentation.md) · [开发与运行](docs/development.md) · [打包与下载](docs/packaging.md) · [工具与权限](docs/chat-tools.md) · [问答组件](docs/questionnaire.md) · [模型接入](docs/models.md) · [本地 MCP](docs/local-mcp.md)

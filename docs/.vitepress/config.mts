@@ -16,6 +16,7 @@ export default defineConfig({
         { text: '本地项目', link: '/projects' },
         { text: '对话归档', link: '/session-archive' },
         { text: '模型接入', link: '/models' },
+        { text: '助手设定', link: '/assistant-setting' },
         { text: '工具与权限', link: '/chat-tools' },
         { text: '问答与授权', link: '/questionnaire' },
         { text: '本地 MCP', link: '/local-mcp' },

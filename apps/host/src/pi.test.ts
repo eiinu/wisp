@@ -43,11 +43,12 @@ it('streams through the configured provider into a local fake API without extern
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const port = (server.address() as { port: number }).port;
-    const provider = configuredProvider({ provider: 'openai-compatible', model: 'test-model', baseUrl: `http://127.0.0.1:${port}/v1` }, 'not-a-real-api-key');
+    const provider = configuredProvider({ provider: 'openai-compatible', model: 'test-model', baseUrl: `http://127.0.0.1:${port}/v1` }, 'not-a-real-api-key', 'Answer with examples.');
     const chunks: string[] = [];
     let text = '';
     for await (const event of provider.stream({ messages: [{ role: 'user', text: 'local-only' }], tools: [] }, { signal: new AbortController().signal })) { if (event.type === 'text_delta') chunks.push(event.delta); if (event.type === 'finish') text = event.message.text; }
     expect(text).toBe('Local response'); expect(chunks.join('')).toBe(text);
+    expect(payload.messages[0].content).toContain('Answer with examples.'); expect(payload.messages[0].content).toContain('lower priority');
     expect(payload.model).toBe('test-model'); expect(authorization).toBe('Bearer not-a-real-api-key');
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

@@ -6,10 +6,12 @@ import { McpSettings } from './mcp-settings.js';
 
 const defaults: ModelConfig = { provider: 'deepseek', model: 'deepseek-flash', baseUrl: 'https://api.deepseek.com' };
 export function SettingsPage({ initialSection = 'model', snapshot, connected, sessionId, request, onBack, onConnect, onRetry }: {
-  initialSection?: 'model'|'connection'|'mcp'; snapshot: Snapshot; connected: boolean; sessionId?: string;
+  initialSection?: 'model'|'connection'|'mcp'|'assistant'; snapshot: Snapshot; connected: boolean; sessionId?: string;
   request(input: Request): Promise<Result>; onBack(): void; onConnect(token: string): Promise<void>; onRetry(): void;
 }) {
-  const [section, setSection] = useState<'model'|'connection'|'mcp'>(initialSection);
+  const [section, setSection] = useState<'model'|'connection'|'mcp'|'assistant'>(initialSection);
+  const [assistantSetting, setAssistantSetting] = useState(snapshot.assistantSetting ?? '');
+  const savedAssistant = useRef(snapshot.assistantSetting ?? '');
   const [config, setConfig] = useState<ModelConfig>(() => ({ ...snapshot.config ?? defaults }));
   const [apiKey, setApiKey] = useState(''), [remember, setRemember] = useState(true), [token, setToken] = useState('');
   const [models, setModels] = useState<ModelInfo[]>([]), [pending, setPending] = useState(false);
@@ -24,7 +26,7 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
   }, [pending]);
   useEffect(() => () => restore.current?.cleanup(), []);
   const [mcpDirty,setMcpDirty] = useState(false);
-  const dirty = mcpDirty || JSON.stringify(config) !== JSON.stringify(saved.current.config) || remember !== saved.current.remember || !!apiKey || !!token;
+  const dirty = assistantSetting !== savedAssistant.current || mcpDirty || JSON.stringify(config) !== JSON.stringify(saved.current.config) || remember !== saved.current.remember || !!apiKey || !!token;
   const running = snapshot.sessions.some(session => !!session.activeRunId);
   const simulator = snapshot.config?.model === 'wisp-dev-simulator';
   const editable = connected && !running && !simulator;
@@ -76,10 +78,26 @@ export function SettingsPage({ initialSection = 'model', snapshot, connected, se
   return <main className="settings-page" ref={page} tabIndex={-1} aria-label="设置页面">
     <aside className="settings-navigation" inert={confirmLeave}>
       <button className="settings-back" onClick={back} disabled={pending}><WorkspaceIcon name="back"/>返回工作台</button><h1>设置</h1>
-      <nav aria-label="设置分类"><button aria-current={section === 'model' ? 'page' : undefined} onClick={() => setSection('model')}><WorkspaceIcon name="model"/>模型</button><button aria-current={section === 'connection' ? 'page' : undefined} onClick={() => setSection('connection')}><WorkspaceIcon name="workspace"/>本机连接</button><button aria-current={section === 'mcp' ? 'page' : undefined} onClick={() => setSection('mcp')}><WorkspaceIcon name="settings"/>本地 MCP</button></nav>
+      <nav aria-label="设置分类"><button aria-current={section === 'assistant' ? 'page' : undefined} onClick={() => setSection('assistant')}><WorkspaceIcon name="model"/>助手设定</button><button aria-current={section === 'model' ? 'page' : undefined} onClick={() => setSection('model')}><WorkspaceIcon name="model"/>模型</button><button aria-current={section === 'connection' ? 'page' : undefined} onClick={() => setSection('connection')}><WorkspaceIcon name="workspace"/>本机连接</button><button aria-current={section === 'mcp' ? 'page' : undefined} onClick={() => setSection('mcp')}><WorkspaceIcon name="settings"/>本地 MCP</button></nav>
     </aside>
     <div className="settings-scroll" inert={confirmLeave}><div className="settings-content">
-      <header><h2>{section === 'model' ? '模型' : section === 'mcp' ? '本地 MCP' : '本机连接'}</h2><p>{section === 'model' ? '管理模型与 API 凭据。由本机直接访问你配置的服务。' : section === 'mcp' ? '管理自定义服务及可供对话调用的工具。' : '查看工作台与本机服务的连接状态。'}</p></header>
+      <header><h2>{section === 'assistant' ? '助手设定' : section === 'model' ? '模型' : section === 'mcp' ? '本地 MCP' : '本机连接'}</h2><p>{section === 'assistant' ? '设置你希望助手采用的表达方式、偏好和背景。对所有对话生效。' : section === 'model' ? '管理模型与 API 凭据。由本机直接访问你配置的服务。' : section === 'mcp' ? '管理自定义服务及可供对话调用的工具。' : '查看工作台与本机服务的连接状态。'}</p></header>
+      <section hidden={section !== 'assistant'}>
+        <form onSubmit={e => { e.preventDefault(); if (!connected) return; void task(async () => {
+          await request({ type: 'assistant.save', text: assistantSetting });
+          savedAssistant.current = assistantSetting; setStatus('助手设定已保存，下次任务生效');
+        }); }}>
+          <fieldset disabled={pending || !connected}>
+            <label className="assistant-setting-field" htmlFor="assistant-setting">助手设定<textarea id="assistant-setting" value={assistantSetting} maxLength={12000} rows={10} aria-describedby="assistant-setting-help" onChange={e => { setAssistantSetting(e.target.value); setStatus(''); }} placeholder="例如：用简洁的中文回答，解释概念时先给一个例子。"/></label>
+            <p id="assistant-setting-help" className="settings-note">仅保存在本机，每次任务发送给所选模型。正在进行的任务不受修改影响。不改变工具权限和审批，也不会改写历史消息。请勿填写密码、API Key 或其他秘密。</p>
+            <p className="settings-note">{assistantSetting.length} / 12000 字符。清空后保存可恢复默认行为。</p>
+            <button type="button" disabled={!assistantSetting} onClick={() => { setAssistantSetting(''); setStatus(''); }}>清空设定</button>
+          </fieldset>
+          {!connected && <p className="settings-note">本机服务未连接，连接后可保存设置。</p>}
+          {feedback}
+          <div className="settings-actions"><button type="button" disabled={pending} onClick={back}>取消并返回</button><button className="primary" type="submit" disabled={pending || !connected}>保存助手设定</button></div>
+        </form>
+      </section>
       <section hidden={section !== 'model'}>
         {!connected && <p className="settings-note">本机服务未连接，连接后可保存设置。</p>}{running && <p className="settings-note">有任务正在运行，结束后即可修改配置。</p>}{simulator && <p className="settings-note">开发模拟使用固定假凭据，不接受真实 Key。退出模拟后运行普通工作台才能配置。</p>}
         <form onSubmit={e => { e.preventDefault(); if (editable) void task(save); }}>

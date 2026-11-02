@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { projectsSchema, modelConfigSchema, type ModelConfig, type SessionInfo } from '@wisp/core';
+import { assistantSettingSchema, projectsSchema, modelConfigSchema, type ModelConfig, type SessionInfo } from '@wisp/core';
 export type StoredProject = import('@wisp/core').StoredProject;
-export interface State { projects: StoredProject[]; version: 1; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig }
+export interface State { assistantSetting?: string; projects: StoredProject[]; version: 1; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig }
 export class StateStore {
   state: State = { version: 1, sessions: [], projects: [] };
   private queue = Promise.resolve();
@@ -21,6 +21,7 @@ export class StateStore {
       }
       const selected = state.sessions.find(s => s.id === state.selectedId);
       if (selected?.archivedAt) state.selectedId = state.sessions.find(s => !s.archivedAt && s.projectId === selected.projectId)?.id;
+      if (state.assistantSetting !== undefined) state.assistantSetting = assistantSettingSchema.parse(state.assistantSetting);
       if (state.config) state.config = modelConfigSchema.parse(state.config);
       this.state = state; this.state.sessions.forEach(s => { delete s.activeRunId; });
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('会话状态损坏，请保留数据目录以便恢复'); }

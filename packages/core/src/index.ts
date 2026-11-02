@@ -42,8 +42,10 @@ export interface McpServerInfo extends McpConfig {
   state: 'disabled'|'connecting'|'connected'|'failed'; message?: string;
   tools: { name: string; remoteName: string; description: string }[];
 }
+export const assistantSettingSchema = z.string().max(12000);
 export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshot') }),
+  z.object({ type: z.literal('assistant.save'), text: assistantSettingSchema }).strict(),
   z.object({ type:z.literal('preview.action.claim'), sessionId:sid, ticket:sid }).strict(),
   z.object({ type:z.literal('preview.action.execute'), sessionId:sid, ticket:sid }).strict(),
   z.object({ type:z.literal('preview.action.complete'), sessionId:sid, ticket:sid, applied:z.boolean() }).strict(),
@@ -82,7 +84,7 @@ export type Request = z.infer<typeof requestSchema>;
 export interface ProjectInfo { id: string; name: string; workspace: string; collapsed: boolean; createdAt: string }
 export interface SessionInfo { archivedAt?: string; projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
 export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' | 'failed'; toolCount: number; message?: string }
-export interface Snapshot { mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
+export interface Snapshot { assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
 export type PreviewTabAction = 'reload' | 'back' | 'forward' | 'close';

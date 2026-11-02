@@ -200,7 +200,7 @@ it('routes connection status to the same dedicated settings page without another
 });
 it('groups settings actions while keeping cancel available when the Host is disconnected',async()=>{
  await act(()=>root.render(<App/>));await click('设置');
- const actions=container.querySelector('.settings-actions')!;
+ const actions=container.querySelector('section:not([hidden]) .settings-actions')!;
  expect(Array.from(actions.querySelectorAll('button')).map(b=>b.textContent)).toEqual(['取消并返回','保存并查询模型','保存设置']);
  const buttons=actions.querySelectorAll('button');expect(buttons[0].disabled).toBe(false);expect(buttons[1].disabled).toBe(true);expect(buttons[2].disabled).toBe(true);
  await act(()=>buttons[0].click());expect(container.querySelector('.settings-page')).toBeNull();
