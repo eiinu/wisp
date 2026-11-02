@@ -144,3 +144,15 @@ it('process execution uses the parent run skill snapshot, rejects newly enabled 
  const next=tool(s.registry.capture());await(await next.prepare!(args,signal())).execute(signal());expect(s.runner).toHaveBeenCalledTimes(1);
  await s.registry.enable(entry.id,false);await expect(next.prepare!(args,signal())).rejects.toThrow('禁用');await s.registry.enable(entry.id,true);await expect(next.prepare!(args,signal())).rejects.toThrow('刷新');
 });
+it('every identical script call requires a fresh single-use decision; host opt-in never approves and cancellation prevents execution',async()=>{
+ const {Agent}=await import('../apps/host/src/agent.js'),{EventLog}=await import('../apps/host/src/log.js');
+ const s=await setup(),d=await s.run('http_download',{url:'https://example.com/a.zip'});await s.run('skill_install_package',{artifactId:d.artifactId,root:'review-notes'});const entry=s.registry.info()[0];await s.registry.enable(entry.id,true);s.service.configure(true);
+ const args={skillId:entry.id,executable:s.binary.path,script:'scripts/run.js',argv:[]},events:any[]=[],tools=s.service.tools('parent',s.registry.capture());expect(tools.find(t=>t.name==='process_run_skill')!.requiresApproval).toBe(true);
+ const agent=new Agent({generate:async messages=>messages.some(m=>m.role==='tool')?{text:'done'}:{text:'',calls:['first','second','third'].map(id=>({id,name:'process_run_skill',args}))}},()=>tools,new EventLog(join(s.root,'per-call.jsonl')),e=>events.push(e));
+ const running=agent.run('same script three times');
+ const pending=async(n:number)=>{await vi.waitFor(()=>expect(events.filter(e=>e.type==='approval_requested')).toHaveLength(n));return events.filter(e=>e.type==='approval_requested')[n-1];};
+ const first=await pending(1);expect(s.runner).not.toHaveBeenCalled();agent.approve(first.runId,'first',true);expect(()=>agent.approve(first.runId,'first',true)).toThrow('pending');
+ const second=await pending(2);expect(s.runner).toHaveBeenCalledTimes(1);expect(()=>agent.approve(second.runId,'first',true)).toThrow('pending');agent.approve(second.runId,'second',false);
+ const third=await pending(3);expect(s.runner).toHaveBeenCalledTimes(1);agent.cancel(third.runId);expect(()=>agent.approve(third.runId,'third',true)).toThrow('pending');await running;
+ expect(s.runner).toHaveBeenCalledTimes(1);expect(events.some(e=>e.type==='tool_result'&&e.data.callId==='second'&&e.data.denied)).toBe(true);expect(events.at(-1).type).toBe('cancelled');
+});
