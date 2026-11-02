@@ -6,8 +6,10 @@ import { snapshotTools } from './tool-introspection.js';
 export interface AgentLifecycle {
   parentRunId?: string;
   taskTitle?: string;
+  skillIds?: string[];
   start?(runId: string, signal: AbortSignal): void;
   collectBeforeCompletion?(signal: AbortSignal): Promise<string | undefined>;
+  initialize?(signal:AbortSignal, emit:(type:RunEvent['type'],data:RunEvent['data'])=>Promise<void>):Promise<string | undefined>;
   close?(): Promise<void>;
 }
 export class Agent {
@@ -65,7 +67,9 @@ export class Agent {
     try {
       const snapshot = snapshotTools(typeof this.tools === 'function' ? this.tools() : this.tools.values());
       const availableTools = snapshot.tools;
-      await emit('started', { prompt, maxSteps });
+      await emit('started', { prompt, maxSteps, ...(this.lifecycle?.skillIds?.length?{skillIds:this.lifecycle.skillIds}:{}) });
+      const context=this.lifecycle?.initialize ? await abortable(this.lifecycle.initialize(signal,(type,data)=>{signal.throwIfAborted();return emit(type,data);}),signal) : undefined; signal.throwIfAborted();
+      if(context)messages.splice(messages.length-1,0,{role:'user',text:context,transient:true});
       for (let step = 0; step < maxSteps; step++) {
         signal.throwIfAborted();
         let chunks = Promise.resolve();

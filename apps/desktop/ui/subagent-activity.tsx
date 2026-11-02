@@ -1,3 +1,4 @@
+import { SkillActivity } from './skills.js';
 import React,{useRef,useState} from 'react';
 import type {Request,Result,RunEvent} from '@wisp/core';
 import {ToolActivity,toolLabel} from './tool-activity.js';
@@ -21,7 +22,7 @@ function Subtask({events,connected,request,openFile,canPreview}:{events:RunEvent
   <header><strong>{title}</strong><span role="status">{status}</span>{!terminal&&<button disabled={!connected||pending.includes('stop')} onClick={()=>void act('stop',{type:'run.cancel',sessionId:first.sessionId!,runId:first.runId})}>{pending.includes('stop')?'正在停止…':'停止'}</button>}</header>
   {error&&<p role="alert">{error}</p>}
   {terminal&&terminal.type!=='completed'&&<p className="file-status">{String(terminal.data.reason??'子任务已结束')}。已执行的外部操作不会撤销。</p>}
-  <details className="subtask-process"><summary>查看任务与执行过程</summary><p className="subtask-prompt">{String(events.find(e=>e.type==='started')?.data.prompt??'')}</p><ToolActivity events={events} ended={!!terminal} canPreview={canPreview} openFile={openFile}/>{groupExecution(events).answers.map((round,i)=><Markdown key={i} text={round.text}/>)}</details>
+  <details className="subtask-process"><summary>查看任务与执行过程</summary><p className="subtask-prompt">{String(events.find(e=>e.type==='started')?.data.prompt??'')}</p><SkillActivity events={events}/><ToolActivity events={events} ended={!!terminal} canPreview={canPreview} openFile={openFile}/>{groupExecution(events).answers.map((round,i)=><Markdown key={i} text={round.text}/>)}</details>
   {/* Approval and clarification must remain visible even when process details collapse. */}
   {!terminal&&approvals.map(e=><InteractionCard key={e.id} title={`${title} · 操作授权`} className="approval"><strong>{toolLabel(String(e.data.name))}</strong><pre>{String(e.data.description??'')}</pre><pre>{JSON.stringify(e.data.args,null,2)}</pre><small>仅批准此子任务的一次调用；停止不撤销已经完成的操作。</small><div className="interaction-actions">{[true,false].map(allowed=><button key={String(allowed)} disabled={!connected||pending.includes(String(e.data.id))} onClick={()=>void act(String(e.data.id),{type:'run.approve',sessionId:first.sessionId!,runId:first.runId,callId:String(e.data.id),allowed})}>{allowed?'批准执行':'拒绝'}</button>)}</div></InteractionCard>)}
   <RunQuestions events={events} ended={!!terminal} connected={connected} request={request}/>

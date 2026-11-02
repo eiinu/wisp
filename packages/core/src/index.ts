@@ -3,11 +3,11 @@ import { questionResponseSchema } from './questionnaire.js';
 import { z } from 'zod';
 export const eventSchema = z.object({
   version: z.literal(1), id: z.string().uuid(), runId: z.string().uuid(), parentRunId: z.string().uuid().optional(), taskTitle: z.string().max(120).optional(), sessionId: z.string().uuid().optional(), at: z.string(),
-  type: z.enum(['started','assistant_delta','assistant','tool_requested','tool_started','approval_requested','approval_resolved','question_requested','question_resolved','tool_result','completed','cancelled','failed','model_usage','model_finish','model_error','model_activity']),
+  type: z.enum(['started','assistant_delta','assistant','tool_requested','tool_started','approval_requested','approval_resolved','question_requested','question_resolved','tool_result','completed','cancelled','failed','model_usage','model_finish','model_error','model_activity','skill_loaded']),
   data: z.record(z.string(), z.unknown()),
 });
 export type RunEvent = z.infer<typeof eventSchema>;
-export type Message = { role: 'user' | 'assistant' | 'tool'; text: string; callId?: string; toolName?: string; isError?: boolean; calls?: ToolCall[]; continuation?: PrivateContinuation };
+export type Message = { role: 'user' | 'assistant' | 'tool'; transient?: boolean; text: string; callId?: string; toolName?: string; isError?: boolean; calls?: ToolCall[]; continuation?: PrivateContinuation };
 export type ModelReply = { text: string; calls?: { id: string; name: string; args: Record<string, unknown> }[] };
 export interface GenerationProvider { generate(messages: Message[], tools: ToolSpec[], signal: AbortSignal, onText?: (text: string) => void): Promise<ModelReply> }
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
@@ -45,6 +45,10 @@ export interface McpServerInfo extends McpConfig {
 export const assistantSettingSchema = z.string().max(12000);
 export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshot') }),
+  z.object({type:z.literal('skills.add'),path:z.string().min(1).max(4096),confirmed:z.literal(true)}).strict(),
+  z.object({type:z.literal('skills.enable'),id:sid,enabled:z.boolean()}).strict(),
+  z.object({type:z.literal('skills.refresh'),id:sid}).strict(),
+  z.object({type:z.literal('skills.remove'),id:sid}).strict(),
   z.object({ type: z.literal('assistant.save'), text: assistantSettingSchema }).strict(),
   z.object({ type:z.literal('preview.action.claim'), sessionId:sid, ticket:sid }).strict(),
   z.object({ type:z.literal('preview.action.execute'), sessionId:sid, ticket:sid }).strict(),
@@ -66,7 +70,7 @@ export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session.restore'), sessionId: sid }).strict(),
   z.object({ type: z.literal('session.rename'), sessionId: sid, title: z.string().trim().min(1).max(100) }),
   z.object({ type: z.literal('session.select'), sessionId: sid }),
-  z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().min(1).max(16000), maxSteps: z.number().int().min(1).max(20).default(8) }),
+  z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().min(1).max(16000), skillIds:z.array(sid).max(3).refine(ids=>new Set(ids).size===ids.length).optional(), maxSteps: z.number().int().min(1).max(20).default(8) }),
   z.object({ type: z.literal('run.retry'), sessionId: sid }),
   z.object({ type: z.literal('run.cancel'), sessionId: sid, runId: sid }),
   z.object({ type:z.literal('run.answer'), sessionId:sid, runId:sid, ticket:sid, response:questionResponseSchema }).strict(),
@@ -84,7 +88,8 @@ export type Request = z.infer<typeof requestSchema>;
 export interface ProjectInfo { id: string; name: string; workspace: string; collapsed: boolean; createdAt: string }
 export interface SessionInfo { archivedAt?: string; projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
 export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' | 'failed'; toolCount: number; message?: string }
-export interface Snapshot { assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
+export interface SkillInfo { id:string; name:string; description:string; source:string; enabled:boolean; version:string; compatibility?:string; warnings:string[]; error?:string }
+export interface Snapshot { skills?:SkillInfo[]; assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
 export type PreviewTabAction = 'reload' | 'back' | 'forward' | 'close';

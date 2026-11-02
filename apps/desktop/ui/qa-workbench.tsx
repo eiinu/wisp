@@ -77,7 +77,7 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   const childEnded=(id:string)=>state.events.some(e=>e.runId===id&&['completed','cancelled','failed'].includes(e.type));
   const finishChildren=()=>{if(Object.keys(childTitles).every(childEnded)&&state.sessions[0].activeRunId){state.events.push(event(crypto.randomUUID(),'approval-fixture','assistant',{step:1,text:'QA：所有子任务已结束；这里只演示汇总位置，不是真实模型回答。'}),event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;}};
   const changed=()=>listeners.forEach(listener=>listener({type:'changed'}));
-  if(['read_webpage','preview_tab_action'].includes(basic)){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
+  if(['read_webpage','preview_tab_action','skills'].includes(basic)){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
   let query:{ticket:string;sessionId:string;claimed:boolean;resolve(tabs:PreviewTabMetadata[]):void}|undefined;
   const identifiers=new Map<string,string>();let listedSession:string|undefined;let listed:({tabId:string}&PreviewTabMetadata)[]=[];
   const queryTabs=(sessionId=state.selectedId!)=>new Promise<PreviewTabMetadata[]>((resolve,reject)=>{
@@ -128,6 +128,25 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     async request(input:Request):Promise<Result>{
+      if(basic==='skills') {
+        state.skills??=[];
+        if(input.type==='skills.add'){if(state.skills.some(s=>s.source===input.path))throw new Error('此样例目录已添加');state.skills.push({id:crypto.randomUUID(),name:'review-notes',description:'仅 QA 内存技能：整理资料，演示长说明与技能状态，不读取本地文件。',source:input.path,enabled:false,version:'qa-memory-version-1',compatibility:'仅 UI 样例，不是实际加载',warnings:['包含 scripts；首版不读取或执行脚本']});changed();return{};}
+        if(input.type==='skills.enable'||input.type==='skills.refresh'||input.type==='skills.remove'){
+          const skill=state.skills.find(s=>s.id===input.id);if(!skill)throw new Error('样例技能不存在');
+          if(input.type==='skills.enable')skill.enabled=input.enabled;
+          if(input.type==='skills.refresh'){skill.version='qa-memory-version-2';}
+          if(input.type==='skills.remove')state.skills=state.skills.filter(s=>s.id!==input.id);
+          changed();return{};
+        }
+        if(input.type==='run.start'){
+          const session=state.sessions.find(s=>s.id===input.sessionId);if(!session||session.activeRunId)throw new Error('样例会话不可用');
+          const id=crypto.randomUUID();session.activeRunId=id;
+          state.events.push(event(crypto.randomUUID(),id,'started',{prompt:input.prompt},session.id));
+          for(const skillId of input.skillIds??[]){const skill=state.skills.find(s=>s.id===skillId&&s.enabled);if(!skill)throw new Error('请选择可用样例技能');state.events.push(event(crypto.randomUUID(),id,'skill_loaded',{skillId,name:skill.name,source:skill.source,version:skill.version},session.id));}
+          state.events.push(event(crypto.randomUUID(),id,'assistant',{text:'QA：这里只展示选中技能的加载来源，不调用真实模型、不读取磁盘。',step:0},session.id),event(crypto.randomUUID(),id,'completed',{},session.id));delete session.activeRunId;changed();return{};
+        }
+      }
+
       if(input.type==='run.cancel'&&tabAction?.runId===input.runId){endAction('QA 已取消',true);return{};}
       if(input.type==='preview.action.claim'||input.type==='preview.action.execute'||input.type==='preview.action.complete'){
         const p=tabAction;if(!p||p.ticket!==input.ticket||p.sessionId!==input.sessionId||state.selectedId!==p.sessionId)throw new Error('样例票据已失效');
@@ -245,5 +264,5 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
 export function QAWorkbench({web=false,basic=''}:{web?:boolean;basic?:string}){
  const[bridge]=useState(()=>fixture(1800,web,basic)),[tabs,setTabs]=useState<{tabId:string;title:string;kind:string}[]>([]),[chosen,choose]=useState(''),[message,setMessage]=useState(''),[pending,setPending]=useState(false),[tabAction,setTabAction]=useState<PreviewTabAction>('reload');
  const perform=async(task:()=>Promise<void>)=>{if(pending)return;setPending(true);setMessage('');try{await task();}catch(e){setMessage(String(e));}finally{setPending(false);}};
- return <div className="qa-tool-workbench">{['read_webpage','preview_tab_action'].includes(basic)&&<div className="qa-banner"><p>两步网页工具 · 内存测试：先在右侧打开网页/文件/新标签，再获取实时列表。正文直接读取无需审批，只返回静态样例，不提取 iframe。</p><button disabled={pending} onClick={()=>void perform(async()=>{const result=await bridge.inspectTabs();setTabs(result);choose(result.find(t=>t.kind==='web')?.tabId??'');})}>获取当前标签列表（内存测试）</button><select aria-label={basic==='preview_tab_action'?'指定列表中的标签':'指定列表中的网页'} value={chosen} onChange={e=>choose(e.target.value)}><option value="">选择网页标签</option>{tabs.filter(t=>basic==='preview_tab_action'||t.kind==='web').map(t=><option key={t.tabId} value={t.tabId}>{t.title} · {t.tabId.slice(0,8)}</option>)}</select>{basic==='preview_tab_action'?<><p>标签动作内存样例：刷新文件/目录或关闭任意标签。网页导航明确不支持，须在 Electron 验证。</p><select aria-label="标签动作" value={tabAction} onChange={e=>setTabAction(e.target.value as PreviewTabAction)}>{(['reload','back','forward','close'] as const).map(a=><option key={a}>{a}</option>)}</select><button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginAction(chosen,tabAction))}>执行标签操作（内存模拟）</button></>:<button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginRead(chosen))}>请求读取指定网页（模拟正文）</button>}<span role="status">{message||`列表共 ${tabs.length} 个标签`}</span></div>}<App initialClient={bridge}/></div>;
+ return <div className="qa-tool-workbench">{['read_webpage','preview_tab_action'].includes(basic)&&<div className="qa-banner"><p>两步网页工具 · 内存测试：先在右侧打开网页/文件/新标签，再获取实时列表。正文直接读取无需审批，只返回静态样例，不提取 iframe。</p><button disabled={pending} onClick={()=>void perform(async()=>{const result=await bridge.inspectTabs();setTabs(result);choose(result.find(t=>t.kind==='web')?.tabId??'');})}>获取当前标签列表（内存测试）</button><select aria-label={basic==='preview_tab_action'?'指定列表中的标签':'指定列表中的网页'} value={chosen} onChange={e=>choose(e.target.value)}><option value="">选择网页标签</option>{tabs.filter(t=>basic==='preview_tab_action'||t.kind==='web').map(t=><option key={t.tabId} value={t.tabId}>{t.title} · {t.tabId.slice(0,8)}</option>)}</select>{basic==='preview_tab_action'?<><p>标签动作内存样例：刷新文件/目录或关闭任意标签。网页导航明确不支持，须在 Electron 验证。</p><select aria-label="标签动作" value={tabAction} onChange={e=>setTabAction(e.target.value as PreviewTabAction)}>{(['reload','back','forward','close'] as const).map(a=><option key={a}>{a}</option>)}</select><button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginAction(chosen,tabAction))}>执行标签操作（内存模拟）</button></>:<button disabled={pending||!chosen} onClick={()=>void perform(()=>bridge.beginRead(chosen))}>请求读取指定网页（模拟正文）</button>}<span role="status">{message||`列表共 ${tabs.length} 个标签`}</span></div>}<App chooseSkillDirectory={basic==='skills'?async()=>'/QA-memory-only/review-notes':undefined} initialClient={bridge}/></div>;
 }

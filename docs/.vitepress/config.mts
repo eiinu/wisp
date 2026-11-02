@@ -21,6 +21,7 @@ export default defineConfig({
         { text: '工具与权限', link: '/chat-tools' },
         { text: '问答与授权', link: '/questionnaire' },
         { text: '本地 MCP', link: '/local-mcp' },
+        { text: '本地技能', link: '/skills' },
         { text: '浏览工作区', link: '/browser-workspace' },
         { text: 'Markdown 与文件预览', link: '/markdown' }
       ] },

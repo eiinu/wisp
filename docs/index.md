@@ -30,3 +30,5 @@
 本网站是静态文档站，不运行 Wisp、Host 或模型 API。仓库内的纯 Web 工作台仅用于 UI 展示和截图验证，不是生产版本。
 
 [查看源码](https://github.com/eiinu/wisp) · [维护与部署此文档站](documentation.md)
+
+本地 [Agent Skills 技能](./skills.md)支持目录管理、按需加载与主动选择；正文是任务材料，不改变工具授权。

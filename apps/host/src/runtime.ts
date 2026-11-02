@@ -1,3 +1,4 @@
+import { SkillRegistry } from './skills.js';
 import { Subagents } from './subagents.js';
 import { TabActions } from './tab-actions.js';
 import { askUserTool } from './questionnaire.js';
@@ -35,11 +36,12 @@ export class Runtime {
   private keyChanging = false;
   private protectedKey = false;
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
+  private skills: SkillRegistry;
   private mcp: LocalMcp;
   private mcpSetup: McpSetup;
-  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}) { this.store = new StateStore(resolve(directory)); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
+  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}) { this.store = new StateStore(resolve(directory)); this.skills=new SkillRegistry(this.store.directory,()=>this.publish({type:'changed'})); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
   async init() {
-    await this.store.load(); await this.mcp.init();
+    await this.store.load(); await this.mcp.init(); await this.skills.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
     if (this.vault) { try { this.credential.storage = await this.vault.available() ? 'secure' : 'session'; const key = await this.vault.load(); this.credential.saved = !!key; if (key && this.store.state.config && officialDeepSeek(this.store.state.config)) { this.key = key; this.protectedKey = true; } } catch { this.credential.error = '安全存储不可用或凭据无法解密；请解锁系统钥匙串、重新保存或删除凭据'; } }
     for (const session of this.store.state.sessions) {
@@ -58,7 +60,7 @@ export class Runtime {
   private idle(id: string) { if (this.busy.has(id)) throw new Error('会话仍在执行，请先取消或等待完成'); }
   private redact = (text: string) => this.key ? text.split(this.key).join('[REDACTED]') : text;
   private project(id: string) { const project = this.store.state.projects.find(p => p.id === id); if (!project) throw new Error('项目不存在'); return project; }
-  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, mcpServers: this.mcp.snapshot(), browserConnected: false }); }
+  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, skills:this.skills.info(), mcpServers: this.mcp.snapshot(), browserConnected: false }); }
   private cancelMcpCalls(serviceId:string) {
     for(const [sessionId,parent] of this.agents) for(const agent of [parent,...(this.families.get(sessionId)?.entries()??[])]){
       const runId=agent.activeRunId;if(!runId)continue;
@@ -85,6 +87,10 @@ export class Runtime {
       this.store.state.assistantSetting = command.text;
       await this.store.save(); this.publish({ type: 'changed' }); return {};
     }
+    if(command.type==='skills.add'){await this.skills.add(command.path);return {snapshot:this.snapshot()};}
+    if(command.type==='skills.enable'){await this.skills.enable(command.id,command.enabled);return {snapshot:this.snapshot()};}
+    if(command.type==='skills.refresh'){await this.skills.refresh(command.id);return {snapshot:this.snapshot()};}
+    if(command.type==='skills.remove'){await this.skills.remove(command.id);return {snapshot:this.snapshot()};}
     if (command.type === 'snapshot') return { snapshot: this.snapshot() };
     if (command.type === 'mcp.save') { if(command.id)this.cancelMcpCalls(command.id); await this.mcp.save(command.id,command.config,command.env,command.rememberEnv); return {snapshot:this.snapshot()}; }
     if (command.type === 'mcp.activate') { await this.mcp.activate(command.id); return {snapshot:this.snapshot()}; }
@@ -182,6 +188,8 @@ export class Runtime {
     } else {
       this.idle(session.id); this.busy.add(session.id);
       try {
+        const skills=command.type==='files.write'?undefined:this.skills.capture();
+        let selectedSkills=command.type==='run.start'?command.skillIds??[]:[];
         let childProvider: (() => ModelProvider) | undefined;
         let prompt: string, maxSteps = 8, provider: ModelProvider | GenerationProvider;
         if (command.type === 'files.write') {
@@ -197,8 +205,10 @@ export class Runtime {
             if (previous.some(e => e.runId === last.runId && e.type === 'tool_requested' && !['files_read', 'files_list'].includes(String(e.data.name)))) throw new Error('此任务已经请求过工具，不能自动重放；请检查执行结果后发送新指令');
             if (String(last.data.prompt).startsWith('手动保存文件：')) throw new Error('请重新打开文件编辑器确认写入内容');
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
+            selectedSkills=Array.isArray(last.data.skillIds)?last.data.skillIds.filter((id):id is string=>typeof id==='string'):[];
           } else { prompt = command.prompt; maxSteps = command.maxSteps; }
         }
+        const runSkills=skills?.execution(selectedSkills);
         const tools = new Registry<Tool>(); tools.register('ask_user',askUserTool); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('preview_tab_action',this.tabActions.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
 
         const conversation = new ConversationStore(this.store.directory, session.id);
@@ -211,13 +221,13 @@ export class Runtime {
         };
         // Capture permissions and provider configuration before any child can start.
         const base=[...tools.values(),...this.mcp.tools()];
-        const family=childProvider ? new Subagents(childProvider,base,log,publish,session.id,redactRun,credentialLength) : undefined;
+        const family=childProvider ? new Subagents(childProvider,base,log,publish,session.id,redactRun,credentialLength,skills?.hasSkills?skills:undefined) : undefined;
         const guarded=family?.guard(base)??base;
         // Children intentionally omit global MCP installation/activation management.
         if(family) { family.setChildTools(guarded); this.families.set(session.id,family); }
-        const available=[...guarded,...this.mcpSetup.tools(),...(family?.tools()??[])];
+        const available=[...guarded,...(runSkills?.tools??[]),...this.mcpSetup.tools(),...(family?.tools()??[])];
         const agent = new Agent(provider, () => available, log, publish, session.id, redactRun, credentialLength,
-          command.type==='files.write'?undefined:messages=>conversation.save(messages,redactRun),family);
+          command.type==='files.write'?undefined:messages=>conversation.save(messages,redactRun),{skillIds:selectedSkills,initialize:runSkills?.initialize,start:(id,signal)=>family?.start(id,signal),collectBeforeCompletion:signal=>family?.collectBeforeCompletion(signal)??Promise.resolve(undefined),close:()=>family?.close()??Promise.resolve()});
         this.agents.set(session.id, agent);
         // No shared await gap after claiming busy: all commands for this session stay isolated.
         const task = agent.run(prompt, maxSteps, history).catch(() => this.publish({ type: 'disconnected', message: '日志写入失败，请检查数据目录；任务已停止。' })).finally(async () => {

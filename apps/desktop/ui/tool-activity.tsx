@@ -2,7 +2,7 @@ import React from 'react';
 import { Markdown } from './markdown.js';
 import { groupExecution } from './tool-groups.js';
 import type { RunEvent } from '@wisp/core';
-const names: Record<string, string> = { agent_spawn:'委派子任务',agent_collect:'收集子任务结果', ask_user:'询问任务细节', mcp_list_services:'查看 MCP 服务', mcp_register:'注册已有 MCP', mcp_install_npm:'安装并注册 MCP', mcp_activate_service:'激活并检查 MCP', files_mkdir: '创建文件夹', files_move: '移动 / 重命名', files_trash: '移入废纸篓', list_preview_tabs:'列出预览标签',read_webpage: '读取网页正文', files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
+const names: Record<string, string> = { skill_load:'加载技能',skill_read_resource:'读取技能材料', agent_spawn:'委派子任务',agent_collect:'收集子任务结果', ask_user:'询问任务细节', mcp_list_services:'查看 MCP 服务', mcp_register:'注册已有 MCP', mcp_install_npm:'安装并注册 MCP', mcp_activate_service:'激活并检查 MCP', files_mkdir: '创建文件夹', files_move: '移动 / 重命名', files_trash: '移入废纸篓', list_preview_tabs:'列出预览标签',read_webpage: '读取网页正文', files_search: '搜索文件', files_replace: '定点修改', open_webpage: '打开网页', files_list: '浏览目录', files_read: '读取文件', files_write: '写入文件' };
 export const toolLabel = (name:string) => names[name] ?? name;
 /** Only presentation: preview still uses the current session's Host authorization. */
 export function ToolActivity({ events, ended, canPreview, previewUnavailableReason, openFile }: { events: RunEvent[]; ended: boolean; canPreview: boolean; previewUnavailableReason?: string; openFile(path: string): void }) {

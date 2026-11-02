@@ -1,0 +1,18 @@
+.skill-entry { padding:16px; margin-block:16px; overflow-wrap:anywhere; }
+.skill-entry header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.skill-entry p { margin-block:10px; }
+.skill-entry .settings-actions { flex-wrap:wrap; }
+.skill-picker { font-size:13px; padding:4px 12px; max-width:100%; }
+.skill-picker summary { cursor:pointer; width:fit-content; padding:6px 0; }
+.skill-picker fieldset { display:grid; gap:10px; max-height:220px; overflow:auto; padding:8px 2px; }
+.skill-picker label { display:flex; align-items:flex-start; gap:8px; min-width:0; }
+.skill-picker input { flex:none; margin-top:3px; }
+.skill-picker span { min-width:0; overflow-wrap:anywhere; }
+.skill-picker small,.skill-activity small { display:block; color:var(--text-secondary,#666); font-size:12px; }
+.skill-picker p { color:var(--text-secondary,#666); }
+.skill-activity { margin-block:10px; font-size:13px; overflow-wrap:anywhere; }
+.skill-activity summary { cursor:pointer; color:var(--text-secondary,#666); }
+.skill-activity p { margin-block:8px; }
+
+.skill-settings button[aria-disabled=true] { opacity:.55; cursor:wait; }
+.skill-entry header span { flex:none; font-size:13px; }

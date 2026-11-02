@@ -27,7 +27,7 @@ export class ConversationStore {
     const clean = (value: unknown): unknown => typeof value === 'string' ? redact(value) : Array.isArray(value) ? value.map(clean) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [redact(k), clean(v)])) : value;
     await mkdir(join(this.directory, 'private-conversations'), { recursive: true, mode: 0o700 });
     const temporary = `${this.file}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ version: 1, messages: clean(messages) }), { mode: 0o600, flag: 'wx' });
+    await writeFile(temporary, JSON.stringify({ version: 1, messages: clean(messages.filter(message=>!message.transient)) }), { mode: 0o600, flag: 'wx' });
     await rename(temporary, this.file);
   }
 }
