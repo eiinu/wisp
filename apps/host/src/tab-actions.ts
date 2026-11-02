@@ -5,12 +5,12 @@ import {PreviewTabs,type Listed} from './preview-tabs.js';
 import type {WorkspaceFiles} from './files.js';
 const argsSchema={parse(a:Record<string,unknown>){if(Object.keys(a).some(k=>!['tabId','action'].includes(k))||typeof a.tabId!=='string'||!a.tabId||a.tabId.length>100||!['reload','back','forward','close'].includes(String(a.action)))throw new Error('必须提供有效 tabId 与 action');return{tabId:a.tabId,action:a.action as PreviewTabAction};}};
 interface Pending {session:string;listed:Listed;action:PreviewTabAction;signal:AbortSignal;claimed:boolean;executed:boolean;status?:string;finish(applied:boolean,error?:string):void}
-/** Approval captures identity before waiting. Delivery tickets are transient, one-use and never logged. */
+/** Preparation captures identity before delivery. Delivery tickets are transient, one-use and never logged. */
 export class TabActions {
  private pending=new Map<string,Pending>();
  constructor(private tabs:PreviewTabs,private publish:(n:Notice)=>void,private desktop?:DesktopService,private timeout=10000){}
  tool(session:string):Tool {
-  return {name:'preview_tab_action',description:'先 list_preview_tabs，再经单次审批操作指定 tabId：网页 reload/back/forward/close；文件与目录 reload/close；空白新标签仅 close。不切换活动标签，不读取正文。导航仅报告请求接收，不保证加载成功。',requiresApproval:true,
+  return {name:'preview_tab_action',description:'先 list_preview_tabs，再直接操作指定 tabId：网页 reload/back/forward/close；文件与目录 reload/close；空白新标签仅 close。不切换活动标签，不读取正文。导航仅报告请求接收，不保证加载成功。',requiresApproval:false,
    inputSchema:{type:'object',properties:{tabId:{type:'string'},action:{type:'string',enum:['reload','back','forward','close']}},required:['tabId','action'],additionalProperties:false},
    validate:a=>{argsSchema.parse(a);},
    prepare:async(a,signal)=>{
@@ -30,7 +30,7 @@ export class TabActions {
       this.pending.set(ticket,item);signal.addEventListener('abort',abort,{once:true});this.publish({type:'preview.action',sessionId:session,ticket});
      });
     }};
-   },execute:async()=>{throw new Error('标签操作必须先准备并审批');}
+   },execute:async()=>{throw new Error('标签操作必须先准备并验证标签');}
   };
  }
  private get(session:string,ticket:string){this.tabs.check(session);const p=this.pending.get(ticket);if(!p||p.session!==session||p.signal.aborted)throw new Error('标签操作票据失效');return p;}

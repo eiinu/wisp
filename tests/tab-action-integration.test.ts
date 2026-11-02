@@ -4,9 +4,9 @@ import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {Runtime} from '../apps/host/src/runtime.js';
-it('real HTTP adapter lists, requests approval, refreshes authorized file and resumes with status only',async()=>{
+it('real HTTP adapter lists, directly refreshes authorized file and resumes with status only',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'wisp-action-')),workspace=await mkdtemp(join(tmpdir(),'wisp-action-files-'));await writeFile(join(workspace,'note.txt'),'private fixture');
- const requests:any[]=[],outputs:any[]=[];let allow=true;
+ const requests:any[]=[],outputs:any[]=[];;
  const server=createServer(async(req,res)=>{
   let body='';for await(const chunk of req)body+=chunk;const input=JSON.parse(body);requests.push(input);
   const turn=input.messages.slice(input.messages.findLastIndex((m:any)=>m.role==='user')),results=turn.filter((m:any)=>m.role==='tool');
@@ -22,10 +22,9 @@ it('real HTTP adapter lists, requests approval, refreshes authorized file and re
   const tasks:Promise<unknown>[]=[];runtime.subscribe(n=>{
    if(n.type==='preview.tabs')tasks.push((async()=>{await runtime.request({type:'preview.tabs.claim',sessionId,ticket:n.ticket});await runtime.request({type:'preview.tabs.complete',sessionId,ticket:n.ticket,tabs:[{id:'file',kind:'file',path:'note.txt',title:'Note',active:false,revision:1}]});})());
    if(n.type==='preview.action')tasks.push((async()=>{const claim=await runtime.request({type:'preview.action.claim',sessionId,ticket:n.ticket});expect(claim.tabAction?.action).toBe('reload');const result=await runtime.request({type:'preview.action.execute',sessionId,ticket:n.ticket});expect(result.file?.text).toBe('private fixture');applications++;await runtime.request({type:'preview.action.complete',sessionId,ticket:n.ticket,applied:true});})());
-   if(n.type==='event'&&n.event.type==='approval_requested')tasks.push(runtime.request({type:'run.approve',sessionId,runId:n.event.runId,callId:n.event.data.id as string,allowed:allow}));
   });
-  for(const approved of [true,false]){allow=approved;await runtime.request({type:'run.start',sessionId,prompt:'refresh'});await vi.waitFor(()=>expect(runtime.snapshot().events.filter(e=>e.type==='completed')).toHaveLength(approved?1:2));await Promise.all(tasks);}
-  expect(applications).toBe(1);expect(JSON.parse(outputs[0])).toMatchObject({status:'refreshed',contentRead:false});expect(outputs[1]).toMatch(/拒绝|denied/i);expect(JSON.stringify(outputs)).not.toContain('private fixture');
-  expect(requests[0].tools.some((t:any)=>t.function.name==='preview_tab_action')).toBe(true);expect(runtime.snapshot().events.filter(e=>e.type==='approval_requested')).toHaveLength(2);
+  for(let run=1;run<=2;run++){await runtime.request({type:'run.start',sessionId,prompt:'refresh'});await vi.waitFor(()=>expect(runtime.snapshot().events.filter(e=>e.type==='completed')).toHaveLength(run));await Promise.all(tasks);}
+  expect(applications).toBe(2);for(const output of outputs)expect(JSON.parse(output)).toMatchObject({status:'refreshed',contentRead:false});expect(JSON.stringify(outputs)).not.toContain('private fixture');
+  expect(requests[0].tools.some((t:any)=>t.function.name==='preview_tab_action')).toBe(true);expect(runtime.snapshot().events.filter(e=>e.type==='approval_requested'||e.type==='approval_resolved')).toHaveLength(0);
  }finally{await runtime.shutdown();await new Promise<void>(r=>server.close(()=>r()));await rm(dir,{recursive:true,force:true});await rm(workspace,{recursive:true,force:true});}
 });

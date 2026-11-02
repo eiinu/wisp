@@ -71,6 +71,8 @@ it('matches real adapter HTTP definitions with and without directory grants, wit
     expect(list.map(({requiresApproval,...t}:any)=>({type:'function',function:{name:t.name,description:t.description,parameters:t.inputSchema}}))).toEqual(requests[index*2]);
     expect(requests[index*2+1]).toEqual(requests[index*2]);
     expect(list.filter((t:any)=>t.name==='tool_introspect')).toHaveLength(1);
+    for(const name of ['preview_tab_action','list_preview_tabs','read_webpage'])expect(list.find((t:any)=>t.name===name).requiresApproval).toBe(false);
+    expect(list.find((t:any)=>t.name==='open_webpage').requiresApproval).toBe(true);
     expect(JSON.stringify(list)).not.toContain('only-fake-key');
   });
   expect(results[0]).toHaveLength(10);
