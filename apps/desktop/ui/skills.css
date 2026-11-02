@@ -16,3 +16,5 @@
 
 .skill-settings button[aria-disabled=true] { opacity:.55; cursor:wait; }
 .skill-entry header span { flex:none; font-size:13px; }
+
+.execution-artifact{overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;font:13px/1.6 monospace;}

@@ -11,7 +11,7 @@ export type Message = { role: 'user' | 'assistant' | 'tool'; transient?: boolean
 export type ModelReply = { text: string; calls?: { id: string; name: string; args: Record<string, unknown> }[] };
 export interface GenerationProvider { generate(messages: Message[], tools: ToolSpec[], signal: AbortSignal, onText?: (text: string) => void): Promise<ModelReply> }
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
-export interface Tool extends ToolSpec { interaction?: 'questionnaire'; source?: { serviceId: string; serviceName: string; toolName: string }; requiresApproval: boolean; prepare?(args: Record<string, unknown>, signal: AbortSignal): Promise<{ description: string; execute(signal: AbortSignal): Promise<string> }>; validate?(args: Record<string, unknown>): void | Promise<void>; execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string> }
+export interface Tool extends ToolSpec { resultFailed?(text: string): boolean; interaction?: 'questionnaire'; source?: { serviceId: string; serviceName: string; toolName: string }; requiresApproval: boolean; prepare?(args: Record<string, unknown>, signal: AbortSignal): Promise<{ description: string; execute(signal: AbortSignal): Promise<string> }>; validate?(args: Record<string, unknown>): void | Promise<void>; execute(args: Record<string, unknown>, signal: AbortSignal): Promise<string> }
 export class Registry<T> {
   private entries = new Map<string, T>();
   register(name: string, item: T) { if (this.entries.has(name)) throw new Error(`Duplicate registration: ${name}`); this.entries.set(name, item); }
@@ -28,7 +28,7 @@ export const modelConfigSchema = z.object({
 });
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 const sid = z.string().uuid();
-export const previewTabSchema = z.object({ id:z.string().min(1).max(4096), kind:z.enum(['web','file','new','workspace']), title:z.string().max(300), active:z.boolean(), url:z.string().max(8192).optional(), path:z.string().max(4096).optional(), revision:z.number().int().nonnegative().optional() }).strict();
+export const previewTabSchema = z.object({ id:z.string().min(1).max(4096), kind:z.enum(['web','file','new','workspace','artifact']), title:z.string().max(300), active:z.boolean(), url:z.string().max(8192).optional(), path:z.string().max(4096).optional(), revision:z.number().int().nonnegative().optional() }).strict();
 export type PreviewTabMetadata = z.infer<typeof previewTabSchema>;
 export const mcpConfigSchema = z.object({
   name: z.string().trim().min(1).max(80), command: z.string().trim().min(1).max(4096).refine(v => !v.includes('\0')),
@@ -45,6 +45,7 @@ export interface McpServerInfo extends McpConfig {
 export const assistantSettingSchema = z.string().max(12000);
 export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshot') }),
+  z.object({type:z.literal('execution.configure'),enabled:z.boolean(),confirmed:z.literal(true)}).strict(),
   z.object({type:z.literal('skills.add'),path:z.string().min(1).max(4096),confirmed:z.literal(true)}).strict(),
   z.object({type:z.literal('skills.enable'),id:sid,enabled:z.boolean()}).strict(),
   z.object({type:z.literal('skills.refresh'),id:sid}).strict(),
@@ -88,8 +89,8 @@ export type Request = z.infer<typeof requestSchema>;
 export interface ProjectInfo { id: string; name: string; workspace: string; collapsed: boolean; createdAt: string }
 export interface SessionInfo { archivedAt?: string; projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
 export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' | 'failed'; toolCount: number; message?: string }
-export interface SkillInfo { id:string; name:string; description:string; source:string; enabled:boolean; version:string; compatibility?:string; warnings:string[]; error?:string }
-export interface Snapshot { skills?:SkillInfo[]; assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
+export interface SkillInfo { managed?:boolean; id:string; name:string; description:string; source:string; enabled:boolean; version:string; compatibility?:string; warnings:string[]; error?:string }
+export interface Snapshot { hostExecutionEnabled?:boolean; skills?:SkillInfo[]; assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
 export type PreviewTabAction = 'reload' | 'back' | 'forward' | 'close';

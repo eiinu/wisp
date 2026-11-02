@@ -2,7 +2,7 @@
 
 主对话的 `run.start` 经 Host Runtime 创建会话独立 Agent，向配置的模型发送当前可用工具 schema。DeepSeek adapter 聚合 SSE 工具参数及调用 ID；Host 顺序执行每批调用、逐项回填结果，再继续请求模型。任务默认最多 8 轮，取消或预算耗尽时停止。
 
-文件工具包括 `files_list`、`files_read`、`files_write`、`files_search`、`files_replace`、`files_mkdir`、`files_move`、`files_trash`。只有明确授权工作目录或继承可信项目目录的会话才提供这些工具。路径和写入内容在审批前校验，执行时再次检查目录边界。写入仍须批准完整参数；一次审批不能重复使用。不提供任意 shell 或全盘访问。
+文件工具包括 `files_list`、`files_read`、`files_write`、`files_search`、`files_replace`、`files_mkdir`、`files_move`、`files_trash`。只有明确授权工作目录或继承可信项目目录的会话才提供这些工具。路径和写入内容在审批前校验，执行时再次检查目录边界。写入仍须批准完整参数；一次审批不能重复使用。内置文件工具不提供任意 shell 或全盘访问。可选的[托管技能脚本执行](skill-installation.md)是独立高权限模式，不受项目文件沙箱约束，默认关闭且每次审批。
 
 未知工具、错误参数和执行错误作为带调用 ID 的错误结果回传模型；取消不会当作可继续的工具错误。模型能调整请求，但依然受相同步数预算限制。多个工具串行执行，避免副作用顺序不确定。已请求写入或浏览器工具的失败任务不能自动重试；用户必须检查结果并发送新指令。重启将未完成任务标为中断，不重放工具。
 

@@ -70,3 +70,8 @@ it('keeps historical rejected tab actions visibly denied even when collapsed',as
  const details=container.querySelector<HTMLDetailsElement>('.execution-process')!;details.open=false;
  expect(container.querySelector('[role=status]')!.textContent).toContain('1 项已拒绝');expect(container.querySelector('[role=status]')!.closest('details')).toBeNull();
 });
+it('keeps failed process status visible while allowing read-only log and artifact snapshots',async()=>{
+ const open=vi.fn(),processEvents=events.map(e=>({...e,data:e.type==='tool_requested'?{id:'c',name:'process_run_skill',args:{script:'scripts/run.js'}}:{callId:'c',isError:true,text:JSON.stringify({status:'timeout',output:'bounded log',artifacts:[{name:'report.md',text:'snapshot'}]})}}));
+ await render(<ToolActivity events={processEvents} ended canPreview={false} openFile={vi.fn()} openArtifact={open}/>);
+ expect(container.querySelector('[role=status]')?.textContent).toContain('1 项失败');const log=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='预览 进程日志.txt')!;expect(log.disabled).toBe(false);await act(()=>log.click());expect(open).toHaveBeenCalledWith('进程日志.txt','bounded log');
+});

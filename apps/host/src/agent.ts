@@ -43,6 +43,10 @@ export class Agent {
     this.lifecycle?.start?.(id, signal);
     const emit = async (type: RunEvent['type'], data: RunEvent['data'] = {}) => {
       const safeData = this.redactData(data) as RunEvent['data'];
+      if (['http_read','http_download'].includes(String(data.name)) && safeData.args && typeof safeData.args === 'object') {
+        const args=safeData.args as Record<string,unknown>;
+        if(typeof args.url==='string')try{const url=new URL(args.url);args.url=url.origin+url.pathname+(url.search?'?[参数已隐藏]':'');}catch{args.url='[无效 URL]';}
+      }
       // Host correlation identifiers are control data, not server text. Redacting a short
       // env value such as "1" inside these identifiers would break approval routing.
       for (const key of ['id', 'callId', 'name']) if (key in data) safeData[key] = data[key];
@@ -174,11 +178,12 @@ export class Agent {
           signal.throwIfAborted();
           await emit('tool_started', { step, callId: call.id, name: call.name });
           let text: string, isError = false;
-          try { text = await abortable(execute(call.args, signal), signal); signal.throwIfAborted(); }
+          try { text = await abortable(execute(call.args, signal), signal); signal.throwIfAborted(); isError = tool.resultFailed?.(text) ?? false; }
           catch (error) {
             signal.throwIfAborted(); isError = true;
             text = JSON.stringify({ error: 'tool_execution_failed', message: this.redact(error instanceof Error ? error.message : 'Tool execution failed') });
           }
+          text = this.redact(text);
           messages.push({ role: 'tool', text, callId: call.id, toolName: call.name, isError });
           await this.checkpoint?.(messages);
           await emit('tool_result', { step, callId: call.id, name: call.name, text, isError });

@@ -16,7 +16,7 @@ export class TabActions {
    prepare:async(a,signal)=>{
     const {tabId,action}=argsSchema.parse(a),listed=this.tabs.capture(session,tabId);
     if(listed.raw.kind!=='web'&&(action==='back'||action==='forward'))throw new Error('前进和后退仅支持网页标签');
-    if(listed.raw.kind==='new'&&action!=='close')throw new Error('新标签页没有可刷新的内容');
+    if((listed.raw.kind==='new'||listed.raw.kind==='artifact')&&action!=='close')throw new Error('此标签是空白页或固定执行记录，没有可刷新的内容');
     await this.tabs.verify(session,listed,signal);
     const safeUrl=listed.raw.url?new URL(listed.raw.url):undefined;if(safeUrl){safeUrl.search='';safeUrl.hash='';}
     return {description:`${action} · ${listed.raw.title} (${listed.raw.kind})\n${safeUrl?.href??listed.raw.path??'工作目录'}\n仅此标签。刷新/导航可能丢弃页面状态；关闭网页还需原生确认。未保存的文件编辑不会被丢弃。`,execute:async signal=>{

@@ -22,6 +22,7 @@ export default defineConfig({
         { text: '问答与授权', link: '/questionnaire' },
         { text: '本地 MCP', link: '/local-mcp' },
         { text: '本地技能', link: '/skills' },
+        { text: '技能安装与执行', link: '/skill-installation' },
         { text: '浏览工作区', link: '/browser-workspace' },
         { text: 'Markdown 与文件预览', link: '/markdown' }
       ] },

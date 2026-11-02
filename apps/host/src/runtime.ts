@@ -1,3 +1,6 @@
+import type {PublicHttp} from './public-http.js';
+import type {ProcessRunner,detectInterpreters} from './host-process.js';
+import { SkillInstall } from './skill-install.js';
 import { SkillRegistry } from './skills.js';
 import { Subagents } from './subagents.js';
 import { TabActions } from './tab-actions.js';
@@ -37,9 +40,10 @@ export class Runtime {
   private protectedKey = false;
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
   private skills: SkillRegistry;
+  private skillInstall: SkillInstall;
   private mcp: LocalMcp;
   private mcpSetup: McpSetup;
-  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}) { this.store = new StateStore(resolve(directory)); this.skills=new SkillRegistry(this.store.directory,()=>this.publish({type:'changed'})); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
+  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}, install?:{http?:PublicHttp;runner?:ProcessRunner;binaries?:typeof detectInterpreters}) { this.store = new StateStore(resolve(directory)); this.skills=new SkillRegistry(this.store.directory,()=>this.publish({type:'changed'})); this.skillInstall=new SkillInstall(this.store.directory,this.skills,install?.http,install?.runner,install?.binaries); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
   async init() {
     await this.store.load(); await this.mcp.init(); await this.skills.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
@@ -60,7 +64,7 @@ export class Runtime {
   private idle(id: string) { if (this.busy.has(id)) throw new Error('会话仍在执行，请先取消或等待完成'); }
   private redact = (text: string) => this.key ? text.split(this.key).join('[REDACTED]') : text;
   private project(id: string) { const project = this.store.state.projects.find(p => p.id === id); if (!project) throw new Error('项目不存在'); return project; }
-  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, skills:this.skills.info(), mcpServers: this.mcp.snapshot(), browserConnected: false }); }
+  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, skills:this.skills.info(), hostExecutionEnabled:this.skillInstall.hostExecutionEnabled, mcpServers: this.mcp.snapshot(), browserConnected: false }); }
   private cancelMcpCalls(serviceId:string) {
     for(const [sessionId,parent] of this.agents) for(const agent of [parent,...(this.families.get(sessionId)?.entries()??[])]){
       const runId=agent.activeRunId;if(!runId)continue;
@@ -87,10 +91,11 @@ export class Runtime {
       this.store.state.assistantSetting = command.text;
       await this.store.save(); this.publish({ type: 'changed' }); return {};
     }
+    if(command.type==='execution.configure'){this.skillInstall.configure(command.enabled);this.publish({type:'changed'});return {snapshot:this.snapshot()};}
     if(command.type==='skills.add'){await this.skills.add(command.path);return {snapshot:this.snapshot()};}
-    if(command.type==='skills.enable'){await this.skills.enable(command.id,command.enabled);return {snapshot:this.snapshot()};}
-    if(command.type==='skills.refresh'){await this.skills.refresh(command.id);return {snapshot:this.snapshot()};}
-    if(command.type==='skills.remove'){await this.skills.remove(command.id);return {snapshot:this.snapshot()};}
+    if(command.type==='skills.enable'){if(!command.enabled)this.skillInstall.revoke(command.id);await this.skills.enable(command.id,command.enabled);return {snapshot:this.snapshot()};}
+    if(command.type==='skills.refresh'){this.skillInstall.revoke(command.id);await this.skills.refresh(command.id);return {snapshot:this.snapshot()};}
+    if(command.type==='skills.remove'){this.skillInstall.revoke(command.id);await this.skills.remove(command.id);return {snapshot:this.snapshot()};}
     if (command.type === 'snapshot') return { snapshot: this.snapshot() };
     if (command.type === 'mcp.save') { if(command.id)this.cancelMcpCalls(command.id); await this.mcp.save(command.id,command.config,command.env,command.rememberEnv); return {snapshot:this.snapshot()}; }
     if (command.type === 'mcp.activate') { await this.mcp.activate(command.id); return {snapshot:this.snapshot()}; }
@@ -220,7 +225,7 @@ export class Runtime {
           this.events.push(event);session.updatedAt=event.at;this.publish({type:'event',event});
         };
         // Capture permissions and provider configuration before any child can start.
-        const base=[...tools.values(),...this.mcp.tools()];
+        const base=[...tools.values(),...this.mcp.tools(),...this.skillInstall.tools()];
         const family=childProvider ? new Subagents(childProvider,base,log,publish,session.id,redactRun,credentialLength,skills?.hasSkills?skills:undefined) : undefined;
         const guarded=family?.guard(base)??base;
         // Children intentionally omit global MCP installation/activation management.
@@ -240,5 +245,5 @@ export class Runtime {
     }
     await this.store.save(); this.publish({ type: 'changed' }); return {};
   }
-  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await this.mcpSetup.shutdown(); await this.mcp.shutdown(); await Promise.allSettled([...this.tasks]); await this.store.save(); }
+  async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await this.skillInstall.shutdown(); await this.mcpSetup.shutdown(); await this.mcp.shutdown(); await Promise.allSettled([...this.tasks]); await this.store.save(); }
 }

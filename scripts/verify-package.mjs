@@ -32,7 +32,7 @@ async function inspect(directory) {
 }
 await inspect(root);
 const require = createRequire(join(root, 'package.json'));
-for (const specifier of ['@earendil-works/pi-ai', '@earendil-works/pi-ai/api/openai-completions.lazy', '@modelcontextprotocol/sdk/client/index.js', 'ajv/dist/2020.js', 'yaml']) {
+for (const specifier of ['@earendil-works/pi-ai', '@earendil-works/pi-ai/api/openai-completions.lazy', '@modelcontextprotocol/sdk/client/index.js', 'ajv/dist/2020.js', 'yaml', 'yauzl', 'ipaddr.js']) {
   const resolved = execFileSync(executable, ['--input-type=module', '-e', `console.log(import.meta.resolve(${JSON.stringify(specifier)}))`], { cwd: root, env: childEnv, encoding: 'utf8' }).trim();
   const file = fileURLToPath(resolved); await access(file); assert(!relative(root, file).startsWith('..'), `Dependency escaped package: ${specifier}`);
 }

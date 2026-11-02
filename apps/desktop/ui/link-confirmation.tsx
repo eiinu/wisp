@@ -1,13 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { safeWebUrl, type PreviewTarget } from './preview-model.js';
+import { safeWebUrl, type LinkSource } from './preview-model.js';
 
-type Pending = { target: PreviewTarget; owner: string };
-const LinkContext = createContext<{ blocked: boolean; request(target: PreviewTarget, owner: string): void; cancel(owner: string): void } | undefined>(undefined);
+type Pending = { target: LinkSource; owner: string };
+const LinkContext = createContext<{ blocked: boolean; request(target: LinkSource, owner: string): void; cancel(owner: string): void } | undefined>(undefined);
 export const useLinkConfirmation = () => useContext(LinkContext);
-export function LinkConfirmationProvider({ children, onOpen }: { children: React.ReactNode; onOpen(target: PreviewTarget): void }) {
+export function LinkConfirmationProvider({ children, onOpen }: { children: React.ReactNode; onOpen(target: LinkSource): void }) {
   const [pending, setPending] = useState<Pending>(), current = useRef<Pending | undefined>(undefined);
   const dialog = useRef<HTMLElement>(null);
-  const request = useCallback((target: PreviewTarget, owner: string) => {
+  const request = useCallback((target: LinkSource, owner: string) => {
     if (target.kind === 'web' && !safeWebUrl(target.url)) return;
     current.current = { target: { ...target }, owner }; setPending(current.current);
   }, []);

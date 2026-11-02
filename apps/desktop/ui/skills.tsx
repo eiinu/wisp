@@ -1,14 +1,15 @@
 import React,{useRef,useState} from 'react';
 import type {Request,Result,SkillInfo,RunEvent} from '@wisp/core';
 import './skills.css';
-export function SkillSettings({skills,connected,request,chooseDirectory=()=>window.wisp?.chooseDirectory?.()??Promise.reject(new Error('目录选择仅在桌面端可用；Web 只用于 UI 验证'))}:{skills:SkillInfo[];connected:boolean;request(input:Request):Promise<Result>;chooseDirectory?:()=>Promise<string|undefined>}){
+export function SkillSettings({skills,connected,request,hostExecutionEnabled=false,chooseDirectory=()=>window.wisp?.chooseDirectory?.()??Promise.reject(new Error('目录选择仅在桌面端可用；Web 只用于 UI 验证'))}:{skills:SkillInfo[];hostExecutionEnabled?:boolean;connected:boolean;request(input:Request):Promise<Result>;chooseDirectory?:()=>Promise<string|undefined>}){
  const [error,setError]=useState(''),[status,setStatus]=useState(''),[pending,setPending]=useState(false),lock=useRef(false),mounted=useRef(true),addButton=useRef<HTMLButtonElement>(null),restore=useRef(false);
  React.useLayoutEffect(()=>{if(!pending&&restore.current){restore.current=false;if(document.activeElement===document.body&&!addButton.current?.closest('[hidden]'))addButton.current?.focus();}},[pending]);
  React.useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
  const act=async(work:()=>Promise<unknown>,message:string)=>{if(lock.current)return;const trigger=document.activeElement;lock.current=true;setPending(true);setError('');setStatus('');try{await work();if(mounted.current)setStatus(message);}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'操作失败');}finally{lock.current=false;if(mounted.current){restore.current=document.activeElement===trigger;setPending(false);}}};
  return <section aria-label="本地技能" className="skill-settings">
-  <p className="settings-note">添加含 SKILL.md 的文件夹。默认禁用，启用后可将正文与文本材料发送给当前模型。只启用你信任的技能；不执行脚本，不授予工具或目录权限。请勿放入密码或密钥。</p>
+  <p className="settings-note">添加含 SKILL.md 的文件夹。默认禁用，启用后可将正文与文本材料发送给当前模型。只启用你信任的技能；加载不会执行脚本，不授予工具或目录权限。请勿放入密码或密钥。</p>
   <button ref={addButton} disabled={!connected} aria-disabled={pending} onClick={()=>void act(async()=>{const path=await chooseDirectory();if(!path)return;await request({type:'skills.add',path,confirmed:true});},'目录选择已结束；新增技能默认禁用')}>添加技能文件夹…</button>
+  <section className="settings-group"><h3>本机脚本执行</h3><p>默认关闭，每次重启重新关闭。没有 OS 沙箱：获批脚本具有当前用户文件与网络权限，可能修改项目之外的数据。停止进程不能撤销副作用，也无法保证终止恶意脱离进程组的程序。不自动安装 Python/Node 或依赖。</p><label><input type="checkbox" checked={hostExecutionEnabled} disabled={!connected||pending} onChange={e=>void act(()=>request({type:'execution.configure',enabled:e.target.checked,confirmed:true}),e.target.checked?'本次启动已允许申请执行；每次仍须单独审阅批准':'已关闭并停止在途脚本')}/>我理解这是本机高权限执行，允许助手提出逐次审批请求</label><p className="settings-note">安装、启用、依赖可用、执行成功是独立状态。可在对话中让助手下载完整 ZIP 并检查文件清单；不会运行远程 bootstrap 或更改默认来源。</p></section>
   {!connected&&<p className="settings-note">本机服务未连接，连接后可管理技能。</p>}
   <div aria-live="polite">{pending?<p role="status">正在处理…</p>:error?<p role="alert" className="error">{error}</p>:status?<p role="status">{status}</p>:null}</div>
   {!skills.length&&<p className="settings-note">尚未添加技能。Wisp 不会自动扫描或启用项目内的指令。</p>}

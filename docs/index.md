@@ -32,3 +32,5 @@
 [查看源码](https://github.com/eiinu/wisp) · [维护与部署此文档站](documentation.md)
 
 本地 [Agent Skills 技能](./skills.md)支持目录管理、按需加载与主动选择；正文是任务材料，不改变工具授权。
+
+公开 HTTPS 资料读取、完整 ZIP 技能安装和单独审批的本机运行见[技能安装与执行](skill-installation.md)。本机运行不是 OS 沙箱，默认关闭。

@@ -35,6 +35,8 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
   };
   if(web) for(const e of state.events.filter(e=>['tool_requested','approval_requested'].includes(e.type)&&e.runId==='approval-fixture')) { e.data.name='open_webpage';e.data.args={url:'https://example.com/'}; e.data.description='打开网页展示样例：批准后在右侧请求加载 example.com；不读取页面，可能受到嵌入限制。'; }
   const basicSamples:Record<string,{args:Record<string,unknown>;description:string}>= {
+    skill_install_package:{args:{artifactId:"qa-package",root:"review-notes"},description:"仅 QA 内存完整包安装，不下载或执行代码。\n来源：https://example.com/skill.zip\n最终来源：https://example.com/skill.zip\n包 SHA256："+"a".repeat(64)+"\n目录：Wisp 托管区 / review-notes\n文件：SKILL.md、references/checklist.md、scripts/run.js（各文件哈希仅 QA 样例）\n批准后注册为禁用，不安装依赖、不运行脚本、不更改默认来源。下一任务启用后可加载。"},
+    process_run_skill:{args:{skillId:"qa-managed-skill",executable:"/QA-memory-only/node",script:"scripts/run.js",argv:["--output","output/report.md"]},description:"仅 QA 内存进程样例，不启动任何进程。\n本机高权限执行（不是沙箱）\n技能：review-notes\n运行时：/QA-memory-only/node\n运行时/脚本/包 SHA256："+"a".repeat(64)+"\n工作目录：Wisp 临时副本；这不是权限隔离\n参数：[--output,output/report.md]\n时限30秒，输出64KiB，不继承用户环境或密钥。当前用户文件与网络权限，可能修改外部数据；停止不能撤销副作用或保证终止逃离进程组的程序。\n完整入口脚本（样例）：\nconsole.log('QA fixture only');"},
     mcp_install_npm:{args:{name:'QA 安装样例',package:'@fixture/server',version:'1.2.3',bin:'fixture',args:[]},description:'仅 QA 内存安装样例：不会联网下载或执行进程。\n来源：https://registry.npmjs.org（公共 registry 不代表包可信）\n包：@fixture/server@1.2.3；入口 fixture\n目录：/QA-memory-only/mcp-installs/example\n真实操作：npm 12+；禁用安装脚本，拒绝 git/URL/本地依赖。批准后安装并注册为禁用；激活另行确认。密钥只在设置填写。'},
     mcp_register:{args:{name:'QA 注册样例',command:'/QA-memory-only/node',args:['/QA-memory-only/server.mjs']},description:'仅 QA 注册样例，不写磁盘、不运行程序。真实注册仅保存已有 stdio 命令，保持禁用，不声称安装；激活另行确认。'},
     mcp_qa_echo:{args:{text:'仅 QA 内存参数'},description:'调用本地 MCP「QA 服务」的 echo。仅演示审批，不启动进程。第三方 MCP 使用系统权限，不受项目目录限制。'},
@@ -128,7 +130,8 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     },
     subscribe(listener){listeners.add(listener);return()=>listeners.delete(listener);},
     async request(input:Request):Promise<Result>{
-      if(basic==='skills') {
+      if(input.type==='execution.configure'){state.hostExecutionEnabled=input.enabled;changed();return{};}
+      if(['skills','skill_install_package','process_run_skill'].includes(basic)) {
         state.skills??=[];
         if(input.type==='skills.add'){if(state.skills.some(s=>s.source===input.path))throw new Error('此样例目录已添加');state.skills.push({id:crypto.randomUUID(),name:'review-notes',description:'仅 QA 内存技能：整理资料，演示长说明与技能状态，不读取本地文件。',source:input.path,enabled:false,version:'qa-memory-version-1',compatibility:'仅 UI 样例，不是实际加载',warnings:['包含 scripts；首版不读取或执行脚本']});changed();return{};}
         if(input.type==='skills.enable'||input.type==='skills.refresh'||input.type==='skills.remove'){
@@ -246,12 +249,13 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
         let received=false;
         if(web&&input.allowed) received=await new Promise<boolean>(resolve=>{const timer=setTimeout(()=>{previewResolve=undefined;resolve(false);},5000);previewResolve=accepted=>{clearTimeout(timer);resolve(accepted);};listeners.forEach(listener=>listener({type:'preview.open',ticket,sessionId:'conversation-fixture'}));});
         if(!state.sessions[0].activeRunId)return{};
+        if(input.allowed&&basic==='skill_install_package')state.skills=[...(state.skills??[]),{id:'qa-managed-skill',name:'review-notes',description:'QA 内存安装，未下载真实包',source:'/QA-memory-only/managed-skills/fixture/review-notes',enabled:false,managed:true,version:'qa-package-hash',warnings:['依赖与执行未验证']}];
         if(input.allowed&&basic==='files_replace')files.set('notes.txt','修改后的 QA 内存笔记');
         if(input.allowed&&basic==='files_move'){files.set('renamed.txt',files.get('notes.txt')!);files.delete('notes.txt');}
         if(input.allowed&&basic==='files_trash')files.delete('notes.txt');
         if(input.allowed&&!web&&!basic) files.set('summary.md','# 内存摘要样例\n\n审批仅改变 QA 内存；没有写入磁盘。');
         state.events.push(event(crypto.randomUUID(),'approval-fixture','approval_resolved',{callId:'call-fixture',allowed:input.allowed}));
-        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='mcp_qa_echo'?'仅 QA MCP 结果样例；未启动进程、未调用真实工具':basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
+        state.events.push(event(crypto.randomUUID(),'approval-fixture','tool_result',{callId:'call-fixture',denied:!input.allowed,isError:web&&input.allowed&&!received,text:!input.allowed?'已拒绝；没有打开或写入':web?(received?'标签打开请求已接收；未读取网页，加载状态请查看右侧':'界面未确认打开请求'):basic==='skill_install_package'?JSON.stringify({status:'installed_disabled',simulated:true,executed:false,dependencies:'未验证'}):basic==='process_run_skill'?JSON.stringify({status:'exited',exitCode:0,output:'QA 内存输出；没有启动进程',artifacts:[{name:'report.md',text:'# QA 产物快照\n\n这是内存样例，不是磁盘文件，也不是搜索结果。'}],simulated:true}):basic==='mcp_qa_echo'?'仅 QA MCP 结果样例；未启动进程、未调用真实工具':basic==='files_mkdir'?'仅 QA 创建目录结果样例；未创建磁盘目录':'内存样例已更新；没有写入磁盘'}));
         state.events.push(event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;changed();return{};
       }
       if(input.type==='model.list')return{models:[{id:'offline-test',name:'离线验证（开发）'}]};

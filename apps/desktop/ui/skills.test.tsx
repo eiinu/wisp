@@ -32,3 +32,12 @@ it('real App settings and composer send explicit selected IDs through the bridge
  await act(()=>container.querySelector<HTMLButtonElement>('button[aria-label="发送"]')!.click());
  expect(request.mock.calls.some(([r])=>r.type==='run.start'&&r.skillIds?.[0]===id)).toBe(true);expect(container.textContent).toContain('已加载 1 个技能');
 });
+it('host execution is off by default, explicit session opt-in is separate from enabling a skill and errors remain visible',async()=>{
+ const request=vi.fn(async()=>({}));await act(()=>root.render(<SkillSettings skills={[]} connected request={request}/>));const field=container.querySelector<HTMLInputElement>('input[type=checkbox]')!;expect(field.checked).toBe(false);expect(container.textContent).toContain('没有 OS 沙箱');
+ await act(()=>field.click());expect(request).toHaveBeenCalledExactlyOnceWith({type:'execution.configure',enabled:true,confirmed:true});expect(container.textContent).toContain('每次仍须');
+ request.mockRejectedValueOnce(new Error('服务断开'));await act(()=>field.click());expect(container.querySelector('[role=alert]')?.textContent).toContain('服务断开');
+});
+it('QA installation registers disabled only after approval and execution artifact opens in actual preview tab without file authority',async()=>{
+ const installer=fixture(0,false,'skill_install_package');await installer.request({type:'run.approve',sessionId:'conversation-fixture',runId:'approval-fixture',callId:'call-fixture',allowed:true});expect((await installer.request({type:'snapshot'})).snapshot?.skills?.[0].enabled).toBe(false);
+ const bridge=fixture(0,false,'process_run_skill');await bridge.request({type:'run.approve',sessionId:'conversation-fixture',runId:'approval-fixture',callId:'call-fixture',allowed:true});await act(()=>root.render(<App initialClient={bridge}/>));await act(()=>button('预览 report.md').click());expect(container.querySelector('.execution-artifact')?.textContent).toContain('不是磁盘文件');expect(container.querySelector('[role=tab][aria-selected=true]')?.textContent).toContain('report.md');
+});
