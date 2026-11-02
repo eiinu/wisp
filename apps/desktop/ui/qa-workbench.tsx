@@ -61,6 +61,21 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
     state.events=state.events.filter(e=>e.runId!=='approval-fixture');
     state.events.push(event('question-start','approval-fixture','started',{prompt:'先询问我的偏好，再整理方案（仅内存样例）'}),event('question-call','approval-fixture','tool_requested',{id:'qa-question',name:'ask_user',args:questionForm,step:0}),event('question-pending','approval-fixture','question_requested',{ticket:questionTicket,callId:'qa-question',step:0,questionnaire:questionForm}));
   }
+  const childTitles:Record<string,string>={'qa-child-read':'资料阅读（内存样例）','qa-child-write':'整理笔记（内存样例）','qa-child-ask':'确认偏好（内存样例）'};
+  const childEvent=(runId:string,type:RunEvent['type'],data:RunEvent['data'])=>({...event(crypto.randomUUID(),runId,type,data),parentRunId:'approval-fixture',taskTitle:childTitles[runId]});
+  if(basic==='subagents') {
+    state.events=state.events.filter(e=>e.runId!=='approval-fixture');
+    state.events.push(event('parallel-parent','approval-fixture','started',{prompt:'并行子任务演示：只改变内存，不调用模型。'}));
+    for(const id of Object.keys(childTitles))state.events.push(childEvent(id,'started',{prompt:childTitles[id]+'；未读取真实文件或启动模型'}));
+    state.events.push(childEvent('qa-child-read','assistant',{step:0,text:'QA：资料阅读完成。'}),childEvent('qa-child-read','completed',{}),
+      childEvent('qa-child-write','tool_requested',{step:0,id:'shared-call',name:'files_write',args:{path:'notes.txt',content:'QA 笔记'}}),
+      childEvent('qa-child-write','approval_requested',{step:0,id:'shared-call',name:'files_write',description:'仅内存审批样例；不会写入磁盘。',args:{path:'notes.txt',content:'QA 笔记'}}),
+      childEvent('qa-child-ask','tool_requested',{step:0,id:'shared-call',name:'ask_user',args:questionForm}),
+      childEvent('qa-child-ask','question_requested',{step:0,callId:'shared-call',ticket:questionTicket,questionnaire:questionForm}));
+  }
+  const childPending=new Set<string>();
+  const childEnded=(id:string)=>state.events.some(e=>e.runId===id&&['completed','cancelled','failed'].includes(e.type));
+  const finishChildren=()=>{if(Object.keys(childTitles).every(childEnded)&&state.sessions[0].activeRunId){state.events.push(event(crypto.randomUUID(),'approval-fixture','assistant',{step:1,text:'QA：所有子任务已结束；这里只演示汇总位置，不是真实模型回答。'}),event(crypto.randomUUID(),'approval-fixture','completed',{}));delete state.sessions[0].activeRunId;}};
   const changed=()=>listeners.forEach(listener=>listener({type:'changed'}));
   if(['read_webpage','preview_tab_action'].includes(basic)){state.events=state.events.filter(e=>e.runId!=='approval-fixture');delete state.sessions[0].activeRunId;}
   let query:{ticket:string;sessionId:string;claimed:boolean;resolve(tabs:PreviewTabMetadata[]):void}|undefined;
@@ -128,6 +143,25 @@ export function fixture(approvalDelay = 1800, web = false, basic = ''): Workbenc
       }
       if(input.type==='preview.tabs.claim'){if(!query||query.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.claimed=true;return{};}
       if(input.type==='preview.tabs.complete'){if(!query?.claimed||query.ticket!==input.ticket||input.sessionId!==state.selectedId||input.sessionId!==query.sessionId)throw new Error('样例列表票据已失效');query.resolve(input.tabs);return{};}
+      if(basic==='subagents'&&['run.cancel','run.approve','run.answer'].includes(input.type)&&'runId' in input) {
+        if(input.sessionId!=='conversation-fixture')throw new Error('样例会话不匹配');
+        const id=input.runId;
+        if(input.type==='run.cancel') {
+          if(id==='approval-fixture'){for(const child of Object.keys(childTitles))if(!childEnded(child))state.events.push(childEvent(child,'cancelled',{reason:'父任务已停止（仅内存）'}));state.events.push(event(crypto.randomUUID(),id,'cancelled',{reason:'QA 已停止'}));delete state.sessions[0].activeRunId;}
+          else {if(!childTitles[id]||childEnded(id))throw new Error('子任务已结束');state.events.push(childEvent(id,'cancelled',{reason:'用户停止此子任务（仅内存）'}));finishChildren();}
+          changed();return{};
+        }
+        if(!childTitles[id]||childEnded(id)||childPending.has(id))throw new Error('没有匹配的子任务交互');
+        if(input.type==='run.approve'&&(id!=='qa-child-write'||input.callId!=='shared-call'))throw new Error('审批不匹配');
+        if(input.type==='run.answer'&&(id!=='qa-child-ask'||input.ticket!==questionTicket))throw new Error('问答不匹配');
+        if(input.type==='run.answer')validateQuestionResponse(questionForm,input.response);
+        childPending.add(id);try {
+          await new Promise(resolve=>setTimeout(resolve,approvalDelay));if(childEnded(id))throw new Error('子任务已停止，没有应用迟到操作');
+          if(input.type==='run.approve')state.events.push(childEvent(id,'approval_resolved',{step:0,callId:'shared-call',allowed:input.allowed}),childEvent(id,'tool_result',{step:0,callId:'shared-call',text:input.allowed?'QA 已确认（未写磁盘）':'QA 已拒绝',denied:!input.allowed}));
+          if(input.type==='run.answer')state.events.push(childEvent(id,'question_resolved',{step:0,callId:'shared-call',ticket:questionTicket,response:input.response}),childEvent(id,'tool_result',{step:0,callId:'shared-call',text:JSON.stringify(input.response)}));
+          state.events.push(childEvent(id,'completed',{}));finishChildren();changed();return{};
+        } finally {childPending.delete(id);}
+      }
       if(input.type==='run.answer'){
         if(basic!=='ask_user'||answering||input.sessionId!=='conversation-fixture'||input.runId!==state.sessions[0].activeRunId||input.ticket!==questionTicket)throw new Error('没有匹配的待回答样例');
         const response=validateQuestionResponse(questionForm,input.response);answering=true;

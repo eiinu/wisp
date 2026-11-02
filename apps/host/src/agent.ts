@@ -3,11 +3,18 @@ import { Registry, questionnaireSchema, validateQuestionResponse, type Questionn
 import { asModelProvider } from './model.js';
 import { EventLog } from './log.js';
 import { snapshotTools } from './tool-introspection.js';
+export interface AgentLifecycle {
+  parentRunId?: string;
+  taskTitle?: string;
+  start?(runId: string, signal: AbortSignal): void;
+  collectBeforeCompletion?(signal: AbortSignal): Promise<string | undefined>;
+  close?(): Promise<void>;
+}
 export class Agent {
   private active?: { id: string; controller: AbortController };
   private question?: {runId:string;ticket:string;form:Questionnaire;resolve(value:QuestionResponse):void};
   private pending?: { runId: string; callId: string; resolve: (value: boolean) => void };
-  constructor(private model: ModelProvider | GenerationProvider, private tools: Registry<Tool> | (() => Tool[]), private log: EventLog, private publish: (event: RunEvent) => void, private sessionId?: string, private redact: (text: string) => string = text => text, private credentialLength = 0, private checkpoint?: (messages: Message[]) => Promise<void>) {}
+  constructor(private model: ModelProvider | GenerationProvider, private tools: Registry<Tool> | (() => Tool[]), private log: EventLog, private publish: (event: RunEvent) => void, private sessionId?: string, private redact: (text: string) => string = text => text, private credentialLength = 0, private checkpoint?: (messages: Message[]) => Promise<void>, private lifecycle?: AgentLifecycle) {}
   private redactData(value: unknown): unknown {
     if (typeof value === 'string') return this.redact(value);
     if (Array.isArray(value)) return value.map(item => this.redactData(item));
@@ -16,7 +23,7 @@ export class Agent {
   }
   get activeRunId() { return this.active?.id; }
   approve(runId: string, callId: string, allowed: boolean) {
-    if (!this.pending || this.pending.runId !== runId || this.pending.callId !== callId) throw new Error('No matching pending approval');
+    if (!this.pending || this.active?.controller.signal.aborted || this.pending.runId !== runId || this.pending.callId !== callId) throw new Error('No matching pending approval');
     const pending = this.pending; this.pending = undefined; pending.resolve(allowed);
   }
   answer(runId:string,ticket:string,response:unknown) {
@@ -31,6 +38,7 @@ export class Agent {
     if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 20) throw new Error('Invalid step budget');
     const id = randomUUID(), controller = new AbortController(), signal = controller.signal;
     this.active = { id, controller };
+    this.lifecycle?.start?.(id, signal);
     const emit = async (type: RunEvent['type'], data: RunEvent['data'] = {}) => {
       const safeData = this.redactData(data) as RunEvent['data'];
       // Host correlation identifiers are control data, not server text. Redacting a short
@@ -49,7 +57,7 @@ export class Agent {
           if(response.status==='answered'&&safe.status==='answered')safe.answers.forEach((a,i)=>{a.questionId=response.answers[i].questionId;a.optionIds=response.answers[i].optionIds;});
         }
       }
-      const event: RunEvent = { version: 1, id: randomUUID(), runId: id, sessionId: this.sessionId, at: new Date().toISOString(), type, data: safeData };
+      const event: RunEvent = { version: 1, id: randomUUID(), runId: id, parentRunId: this.lifecycle?.parentRunId, taskTitle: this.lifecycle?.taskTitle, sessionId: this.sessionId, at: new Date().toISOString(), type, data: safeData };
       await this.log.append(event); this.publish(event);
     };
     const callIds = new Set<string>();
@@ -93,7 +101,17 @@ export class Agent {
         if (buffered) await emit('assistant_delta', { text: this.redact(buffered), step });
         messages.push(structuredClone(reply)); await this.checkpoint?.(messages);
         if (reply.text) await emit('assistant', { text: reply.text, step });
-        if (!calls.length) { await emit('completed'); return; }
+        if (!calls.length) {
+          const report = await this.lifecycle?.collectBeforeCompletion?.(signal);
+          signal.throwIfAborted();
+          if (report) {
+            // Host orchestration context, never emitted as a user chat message. Keep the
+            // prior assistant reply in provider history; append rather than mutate it.
+            messages.push({role:'user', text:report}); await this.checkpoint?.(messages);
+            continue;
+          }
+          await emit('completed'); return;
+        }
         if (calls.length > 8) throw new Error('Too many tool calls in one step');
         // Reject ambiguous batches before any side effect or approval can occur.
         for (const call of calls) {
@@ -165,7 +183,7 @@ export class Agent {
       await emit('failed', { reason: 'Step budget exhausted' });
     } catch (e) {
       await emit(signal.aborted ? 'cancelled' : 'failed', { reason: signal.aborted ? 'Cancelled by user' : e instanceof Error ? e.message : 'Unknown failure' });
-    } finally { try { await this.checkpoint?.(messages); } finally { this.pending = undefined; this.question=undefined; this.active = undefined; } }
+    } finally { try { await this.lifecycle?.close?.(); await this.checkpoint?.(messages); } finally { this.pending = undefined; this.question=undefined; this.active = undefined; } }
   }
 }
 export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {

@@ -1,3 +1,4 @@
+import { SubagentActivity } from './subagent-activity.js';
 import {tabActionDelivery,type TabActionHandler} from './tab-action-delivery.js';
 import { InteractionCard, RunQuestions } from './questionnaire.js';
 import React, { useCallback, useReducer, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -102,7 +103,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
       if (notice.type === 'changed') void refresh();
       if (notice.type === 'event') {
         const e = notice.event;
-        setSnapshot(s => ({ ...s, events: s.events.some(old => old.id === e.id) ? s.events : [...s.events, e], sessions: s.sessions.map(session => session.id !== e.sessionId ? session : { ...session, updatedAt: e.at, activeRunId: e.type === 'started' ? e.runId : session.activeRunId }) }));
+        setSnapshot(s => ({ ...s, events: s.events.some(old => old.id === e.id) ? s.events : [...s.events, e], sessions: s.sessions.map(session => session.id !== e.sessionId ? session : { ...session, updatedAt: e.at, activeRunId: e.type === 'started' && !e.parentRunId ? e.runId : session.activeRunId }) }));
       }
     });
     void refresh();
@@ -145,10 +146,11 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
     }); sendLock.current = false; setBusy(false);
   };
   const approve = async (sessionId: string, runId: string, callId: string, allowed: boolean) => {
-    if (approvalLocks.current.has(callId)) return;
-    approvalLocks.current.add(callId); setApproving(Array.from(approvalLocks.current));
+    const lockId=`${runId}:${callId}`;
+    if (approvalLocks.current.has(lockId)) return;
+    approvalLocks.current.add(lockId); setApproving(Array.from(approvalLocks.current));
     try { await action(() => api({ type: 'run.approve', sessionId, runId, callId, allowed })); }
-    finally { approvalLocks.current.delete(callId); setApproving(Array.from(approvalLocks.current)); }
+    finally { approvalLocks.current.delete(lockId); setApproving(Array.from(approvalLocks.current)); }
   };
   const showWorkspace = () => { if (!preview.tabs.length) dispatchPreview({type: 'open', target: {kind: 'workspace'}}); setPanel(!panel); };
   useEffect(() => { dispatchPreview({type: 'scope', sessionId: selected, workspace: current?.workspace}); }, [selected, current?.workspace]);
@@ -161,7 +163,7 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
     };
     window.addEventListener('keydown', shortcuts); return () => window.removeEventListener('keydown', shortcuts);
   }, [connected, bridge, modal, projectDialog, settingsOpen]);
-  const runs = [...new Set(events.map(e => e.runId))];
+  const runs = [...new Set(events.filter(e=>!e.parentRunId).map(e => e.runId))];
   return <LinkConfirmationProvider onOpen={openPreview}><div className={`workbench ${sidebar ? 'sidebar-visible' : ''}`} style={settingsOpen ? { display: 'none' } : undefined} inert={settingsOpen}>
     <aside className="sidebar"><div className="brand"><span className="mark">w</span><strong>Wisp</strong><button className="icon mobile" onClick={() => setSidebar(false)} aria-label="关闭侧栏"><WorkspaceIcon name="close"/></button></div>
       <button className="new-chat" onClick={() => void newSession()} disabled={!connected}><WorkspaceIcon name="plus"/> 新对话 <kbd>⌘ N</kbd></button>
@@ -183,8 +185,9 @@ export function App({ initialClient }: { initialClient?: WorkbenchBridge } = {})
           return <div className="turn" key={runId}><div className="user-message">{String(start?.data.prompt ?? '')}</div><div className="assistant-message"><span className="assistant-mark">w</span><div className="assistant-body">
 
             <ToolActivity events={run} ended={!!terminal} canPreview={connected && !!current?.workspace} previewUnavailableReason={!connected ? '本机服务未连接，连接后可预览文件' : '此会话尚未授权工作目录，授权后可预览文件'} openFile={path => { if (selected && current?.workspace) openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path}); }}/>
+            <SubagentActivity events={events} parentRunId={runId} sessionId={selected!} connected={connected} request={api} canPreview={connected&&!!current?.workspace} openFile={path=>{if(selected&&current?.workspace)openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path});}}/>
             {answers.map((round,index)=><Markdown key={round.step ?? `history-${index}`} text={round.text}/>)}
-            {!terminal && pending.map(e => <InteractionCard title="操作授权" className="approval" key={e.id}><div className="approval-title"><WorkspaceIcon name="shield"/> 需要你的批准</div><pre className="approval-description">{String(e.data.description)}</pre><strong>{toolLabel(String(e.data.name))}</strong><pre>{JSON.stringify(e.data.args, null, 2)}</pre><small>仅批准这一次调用。拒绝后不会执行此操作。</small><div><button className="primary" disabled={!connected || approving.includes(String(e.data.id))} onClick={() => void approve(selected!, runId, String(e.data.id), true)}>批准执行</button><button disabled={!connected || approving.includes(String(e.data.id))} onClick={() => void approve(selected!, runId, String(e.data.id), false)}>拒绝</button></div></InteractionCard>)}
+            {!terminal && pending.map(e => <InteractionCard title="操作授权" className="approval" key={e.id}><div className="approval-title"><WorkspaceIcon name="shield"/> 需要你的批准</div><pre className="approval-description">{String(e.data.description)}</pre><strong>{toolLabel(String(e.data.name))}</strong><pre>{JSON.stringify(e.data.args, null, 2)}</pre><small>仅批准这一次调用。拒绝后不会执行此操作。</small><div><button className="primary" disabled={!connected || approving.includes(`${runId}:${String(e.data.id)}`)} onClick={() => void approve(selected!, runId, String(e.data.id), true)}>批准执行</button><button disabled={!connected || approving.includes(`${runId}:${String(e.data.id)}`)} onClick={() => void approve(selected!, runId, String(e.data.id), false)}>拒绝</button></div></InteractionCard>)}
             <RunQuestions events={run} ended={!!terminal} connected={connected} request={api}/>
             {terminal && terminal.type !== 'completed' && <div className={`run-notice ${terminal.type}`}><span>{labels[terminal.type]} · {String(terminal.data.reason ?? '')}</span>{runId === runs.at(-1) && <button disabled={!connected || !!active} onClick={() => void action(() => api({ type: 'run.retry', sessionId: selected!, }))}>重试</button>}</div>}
             {terminal?.type === 'completed' && <div className="message-actions"><span><WorkspaceIcon name="check"/> 已完成</span><button onClick={() => void action(async () => { await copyText(run.filter(e => e.type === 'assistant').map(e => String(e.data.text)).join('\n'), window.wisp); setCopied(runId); })}><WorkspaceIcon name={copied === runId ? 'check' : 'copy'}/>{copied === runId ? '已复制' : '复制回复'}</button></div>}

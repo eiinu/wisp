@@ -2,7 +2,7 @@ export * from './questionnaire.js';
 import { questionResponseSchema } from './questionnaire.js';
 import { z } from 'zod';
 export const eventSchema = z.object({
-  version: z.literal(1), id: z.string().uuid(), runId: z.string().uuid(), sessionId: z.string().uuid().optional(), at: z.string(),
+  version: z.literal(1), id: z.string().uuid(), runId: z.string().uuid(), parentRunId: z.string().uuid().optional(), taskTitle: z.string().max(120).optional(), sessionId: z.string().uuid().optional(), at: z.string(),
   type: z.enum(['started','assistant_delta','assistant','tool_requested','tool_started','approval_requested','approval_resolved','question_requested','question_resolved','tool_result','completed','cancelled','failed','model_usage','model_finish','model_error','model_activity']),
   data: z.record(z.string(), z.unknown()),
 });

@@ -1,3 +1,4 @@
+import { Subagents } from './subagents.js';
 import { TabActions } from './tab-actions.js';
 import { askUserTool } from './questionnaire.js';
 import { PreviewTabs } from './preview-tabs.js';
@@ -25,6 +26,7 @@ export class Runtime {
   private previews = new PreviewRequests(notice => this.publish(notice), () => this.store.state.selectedId);
   private tabs:PreviewTabs;
   private tabActions:TabActions;
+  private families = new Map<string, Subagents>();
   private agents = new Map<string, Agent>();
   private busy = new Set<string>();
   private tasks = new Set<Promise<void>>();
@@ -44,7 +46,7 @@ export class Runtime {
       const log = this.log(session.id), events = await log.read(); this.events.push(...events);
       const starts = events.filter(e => e.type === 'started');
       for (const start of starts) if (!events.some(e => e.runId === start.runId && ['completed', 'cancelled', 'failed'].includes(e.type))) {
-        const interrupted: RunEvent = { version: 1, id: randomUUID(), sessionId: session.id, runId: start.runId, at: new Date().toISOString(), type: 'failed', data: { reason: 'Host 已重启；原任务已中断，没有重放工具。' } };
+        const interrupted: RunEvent = { version: 1, id: randomUUID(), sessionId: session.id, runId: start.runId, parentRunId: start.parentRunId, taskTitle: start.taskTitle, at: new Date().toISOString(), type: 'failed', data: { reason: 'Host 已重启；原任务已中断，没有重放工具。' } };
         await log.append(interrupted); this.events.push(interrupted);
       }
     }
@@ -58,7 +60,7 @@ export class Runtime {
   private project(id: string) { const project = this.store.state.projects.find(p => p.id === id); if (!project) throw new Error('项目不存在'); return project; }
   snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, mcpServers: this.mcp.snapshot(), browserConnected: false }); }
   private cancelMcpCalls(serviceId:string) {
-    for(const [sessionId,agent] of this.agents){
+    for(const [sessionId,parent] of this.agents) for(const agent of [parent,...(this.families.get(sessionId)?.entries()??[])]){
       const runId=agent.activeRunId;if(!runId)continue;
       const events=this.events.filter(event=>event.runId===runId&&event.sessionId===sessionId);
       const call=events.findLast(event=>event.type==='tool_requested');
@@ -66,12 +68,14 @@ export class Runtime {
     }
   }
   private async workspace(session: SessionInfo) { if (session.projectId) { const project = this.project(session.projectId); try { return await WorkspaceFiles.grant(project.workspace, this.store.directory, project.identity); } catch { throw new Error('项目目录不可用或已改变，请恢复原目录或新建项目'); } } if (!session.workspace) throw new Error('请先授权此会话的工作目录'); return WorkspaceFiles.grant(session.workspace, this.store.directory); }
-  private provider(): ModelProvider {
+  private provider(): ModelProvider { return this.providerFactory()(); }
+  private providerFactory(): () => ModelProvider {
     const config = this.store.state.config; if (!config) throw new Error('请先配置模型；也可以明确选择离线验证模式');
-    if (config.provider === 'offline') return asModelProvider(offlineProvider);
+    if (config.provider === 'offline') return () => asModelProvider(offlineProvider);
     if (!this.key) throw new Error('API Key 未在当前 Host 进程中设置');
     if (this.protectedKey && !officialDeepSeek(config)) throw new Error('持久化 DeepSeek Key 仅限官方 API');
-    return configuredProvider(config, this.key, this.store.state.assistantSetting ?? '');
+    const snapshot=structuredClone(config), key=this.key, setting=this.store.state.assistantSetting??'';
+    return () => configuredProvider(snapshot,key,setting);
   }
   async request(input: unknown): Promise<Result> {
     const parsed = requestSchema.safeParse(input); if (!parsed.success) throw new Error('请求格式不正确');
@@ -170,23 +174,25 @@ export class Runtime {
     else if (command.type === 'files.list') return { entries: await (await this.workspace(session)).list(command.path) };
     else if (command.type === 'files.read') return { file: await (await this.workspace(session)).read(command.path) };
     else if (command.type === 'run.cancel' || command.type === 'run.approve' || command.type==='run.answer') {
-      const agent = this.agents.get(session.id);
+      const parent = this.agents.get(session.id);
+      const agent=parent?.activeRunId===command.runId?parent:this.families.get(session.id)?.find(command.runId);
       if (!agent || agent.activeRunId !== command.runId) throw new Error('没有匹配的运行任务');
       if(command.type==='run.answer')agent.answer(command.runId,command.ticket,command.response); else if (command.type === 'run.cancel') { agent.cancel(command.runId);  } else agent.approve(command.runId, command.callId, command.allowed);
       return {};
     } else {
       this.idle(session.id); this.busy.add(session.id);
       try {
+        let childProvider: (() => ModelProvider) | undefined;
         let prompt: string, maxSteps = 8, provider: ModelProvider | GenerationProvider;
         if (command.type === 'files.write') {
           const workspace = await this.workspace(session); await workspace.resolve(command.path, true);
           prompt = `手动保存文件：${command.path}`;
           provider = { generate: async messages => messages.some(m => m.role === 'tool') ? { text: '文件保存流程结束，请查看工具结果。' } : { text: '', calls: [{ id: randomUUID(), name: 'files_write', args: { path: command.path, content: command.content } }] } };
         } else {
-          provider = this.provider();
+          childProvider=this.providerFactory(); provider = childProvider();
           if (command.type === 'run.retry') {
             const previous = this.events.filter(e => e.sessionId === session.id);
-            const last = previous.findLast(e => e.type === 'started');
+            const last = previous.findLast(e => e.type === 'started' && !e.parentRunId);
             if (!last || !previous.some(e => e.runId === last.runId && ['failed', 'cancelled'].includes(e.type))) throw new Error('没有可重试的失败或取消任务');
             if (previous.some(e => e.runId === last.runId && e.type === 'tool_requested' && !['files_read', 'files_list'].includes(String(e.data.name)))) throw new Error('此任务已经请求过工具，不能自动重放；请检查执行结果后发送新指令');
             if (String(last.data.prompt).startsWith('手动保存文件：')) throw new Error('请重新打开文件编辑器确认写入内容');
@@ -196,16 +202,26 @@ export class Runtime {
         const tools = new Registry<Tool>(); tools.register('ask_user',askUserTool); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('preview_tab_action',this.tabActions.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
 
         const conversation = new ConversationStore(this.store.directory, session.id);
-        const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
+        const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && !e.parentRunId && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
         const runKey = this.key, redactRun = (text: string) => this.mcp.redact(runKey ? text.split(runKey).join('[REDACTED]') : text);
-        const agent = new Agent(provider, () => [...tools.values(), ...this.mcpSetup.tools(), ...this.mcp.tools()], this.log(session.id), event => {
-          if (event.type === 'started') session.activeRunId = event.runId;
-          this.events.push(event); session.updatedAt = event.at; this.publish({ type: 'event', event });
-        }, session.id, redactRun, Math.max(runKey.length, this.mcp.redactionLength), command.type === 'files.write' ? undefined : messages => conversation.save(messages, redactRun));
+        const log=this.log(session.id), credentialLength=Math.max(runKey.length,this.mcp.redactionLength);
+        const publish=(event:RunEvent)=>{
+          if(event.type==='started'&&!event.parentRunId)session.activeRunId=event.runId;
+          this.events.push(event);session.updatedAt=event.at;this.publish({type:'event',event});
+        };
+        // Capture permissions and provider configuration before any child can start.
+        const base=[...tools.values(),...this.mcp.tools()];
+        const family=childProvider ? new Subagents(childProvider,base,log,publish,session.id,redactRun,credentialLength) : undefined;
+        const guarded=family?.guard(base)??base;
+        // Children intentionally omit global MCP installation/activation management.
+        if(family) { family.setChildTools(guarded); this.families.set(session.id,family); }
+        const available=[...guarded,...this.mcpSetup.tools(),...(family?.tools()??[])];
+        const agent = new Agent(provider, () => available, log, publish, session.id, redactRun, credentialLength,
+          command.type==='files.write'?undefined:messages=>conversation.save(messages,redactRun),family);
         this.agents.set(session.id, agent);
         // No shared await gap after claiming busy: all commands for this session stay isolated.
         const task = agent.run(prompt, maxSteps, history).catch(() => this.publish({ type: 'disconnected', message: '日志写入失败，请检查数据目录；任务已停止。' })).finally(async () => {
-          this.agents.delete(session.id); this.busy.delete(session.id); delete session.activeRunId;
+          this.families.delete(session.id); this.agents.delete(session.id); this.busy.delete(session.id); delete session.activeRunId;
           await this.store.save().catch(() => {}); this.publish({ type: 'changed' });
         });
         this.tasks.add(task); void task.finally(() => this.tasks.delete(task));

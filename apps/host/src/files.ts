@@ -65,18 +65,29 @@ export class WorkspaceFiles {
       return { path, size: data.length, kind: ['.md', '.markdown'].includes(ext) ? 'markdown' : 'text', text };
     } finally { await handle.close(); }
   }
-  async write(path: string, content: string, signal: AbortSignal) {
-    return fileMutation(signal, () => this.writeUnlocked(path, content, signal));
+  private async version(path: string) {
+    const target=await this.resolve(path,true);
+    try { const stat=await lstat(target,{bigint:true});
+      if(!stat.isFile()||stat.nlink!==1n)throw new Error('不能覆盖链接或非普通文件');
+      return [stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].join(':');
+    } catch(error) { if((error as NodeJS.ErrnoException).code==='ENOENT')return 'absent';throw error; }
   }
-  private async writeUnlocked(path: string, content: string, signal: AbortSignal) {
+  async write(path: string, content: string, signal: AbortSignal, expected?: string) {
+    const version=expected??await this.version(path);
+    return fileMutation(signal, () => this.writeUnlocked(path, content, signal, version));
+  }
+  private async writeUnlocked(path: string, content: string, signal: AbortSignal, expected:string) {
     signal.throwIfAborted(); if (Buffer.byteLength(content) > 200000) throw new Error('写入内容过大');
+    if(await this.version(path)!==expected)throw new Error('文件已在准备写入后改变，请重新读取并确认，未覆盖新内容');
     const target = await this.resolve(path, true);
     try { const stat = await lstat(target); if (!stat.isFile() || stat.nlink > 1) throw new Error('不能覆盖链接或非普通文件'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
     const temporary = join(dirname(target), `.wisp-write-${randomUUID()}`);
     const handle = await open(temporary, 'wx', 0o600);
     try {
       await handle.writeFile(content, 'utf8'); await handle.close(); signal.throwIfAborted();
-      await this.resolve(path, true); await rename(temporary, target);
+      await this.resolve(path, true);
+      if(await this.version(path)!==expected)throw new Error('文件已改变，未覆盖新内容');
+      signal.throwIfAborted(); await rename(temporary, target);
     } catch (e) { await handle.close().catch(() => {}); await unlink(temporary).catch(() => {}); throw e; }
     return `已写入 ${basename(path)}（${Buffer.byteLength(content)} 字节）`;
   }
@@ -94,7 +105,10 @@ export class WorkspaceFiles {
       ...extendedFileTools(this, desktop),
       { name: 'files_list', description: '列出已授权工作目录中的文件。path 为空字符串表示根目录。', inputSchema: schema, requiresApproval: false, validate: args => validate(args), execute: async (args, signal) => { signal.throwIfAborted(); return JSON.stringify(await this.list(pathArg(args))); } },
       { name: 'files_read', description: '读取已授权目录中的文本文件（最多 2 MB）；不支持模型图片输入。', inputSchema: schema, requiresApproval: false, validate: args => validate(args), execute: async (args, signal) => { signal.throwIfAborted(); const file = await this.read(pathArg(args)); if (file.text === undefined) throw new Error('工具仅支持文本内容'); return file.text.length > 32000 ? file.text.slice(0, 32000) + '\n[工具结果已截断至 32000 字符；可在文件面板查看完整预览]' : file.text; } },
-      { name: 'files_write', description: '创建或覆盖授权目录内的文本文件；每次写入须由用户明确批准完整内容。', inputSchema: { ...schema, properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] }, requiresApproval: true, validate: args => validate(args, true), execute: async (args, signal) => { if (typeof args.content !== 'string') throw new Error('content 必须是字符串'); return this.write(pathArg(args), args.content, signal); } },
+      { name: 'files_write', description: '创建或覆盖授权目录内的文本文件；每次写入须由用户明确批准完整内容。', inputSchema: { ...schema, properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] }, requiresApproval: true, validate: args => validate(args, true), prepare: async args => {
+        const path=pathArg(args),content=String(args.content),expected=await this.version(path);
+        return {description:`写入 ${path}。批准后将重新校验文件版本；发生并发修改时拒绝覆盖。`,execute:signal=>this.write(path,content,signal,expected)};
+      }, execute: async (args, signal) => { if (typeof args.content !== 'string') throw new Error('content 必须是字符串'); return this.write(pathArg(args), args.content, signal); } },
     ];
   }
 }
