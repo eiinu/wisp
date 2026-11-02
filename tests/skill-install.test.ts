@@ -98,7 +98,7 @@ it('approval binds update contents and rolls back a failed registry commit, and 
 it('revoke cancels inflight approved process, rejects concurrent jobs, collects only bounded safe text artifacts',async()=>{
  const s=await setup(),d=await s.run('http_download',{url:'https://example.com/a.zip'});await s.run('skill_install_package',{artifactId:d.artifactId,root:'review-notes'});const entry=s.registry.info()[0];await s.registry.enable(entry.id,true);s.service.configure(true);const args={skillId:entry.id,executable:s.binary.path,script:'scripts/run.js',argv:[]};
  let entered=false;s.runner.mockImplementationOnce(async(spec,signal)=>{entered=true;await new Promise<void>(r=>signal.addEventListener('abort',()=>r(),{once:true}));return {exitCode:null as any,signal:null,status:'cancelled' as any,output:'cancelled',truncated:false};});
- const running=s.run('process_run_skill',args);await vi.waitFor(()=>expect(entered).toBe(true));await expect(s.run('process_run_skill',args)).rejects.toThrow('正在执行');s.service.revoke(entry.id);expect((await running).status).toBe('cancelled');
+ const running=s.run('process_run_skill',args);await vi.waitFor(()=>expect(entered).toBe(true),{timeout:5000});await expect(s.run('process_run_skill',args)).rejects.toThrow('正在执行');s.service.revoke(entry.id);expect((await running).status).toBe('cancelled');
  s.runner.mockImplementationOnce(async(spec)=>{await mkdir(join(spec.cwd,'output'));await writeFile(join(spec.cwd,'output','report.md'),'fixture artifact');await symlink('/etc/passwd',join(spec.cwd,'output','escape.txt'));await writeFile(join(spec.cwd,'output','large.txt'),'x'.repeat(40000));return {exitCode:0,signal:null,status:'exited',output:'ok',truncated:false};});
  expect((await s.run('process_run_skill',args)).artifacts).toEqual([{name:'report.md',text:'fixture artifact'}]);
 });
@@ -155,4 +155,23 @@ it('every identical script call requires a fresh single-use decision; host opt-i
  const second=await pending(2);expect(s.runner).toHaveBeenCalledTimes(1);expect(()=>agent.approve(second.runId,'first',true)).toThrow('pending');agent.approve(second.runId,'second',false);
  const third=await pending(3);expect(s.runner).toHaveBeenCalledTimes(1);agent.cancel(third.runId);expect(()=>agent.approve(third.runId,'third',true)).toThrow('pending');await running;
  expect(s.runner).toHaveBeenCalledTimes(1);expect(events.some(e=>e.type==='tool_result'&&e.data.callId==='second'&&e.data.denied)).toBe(true);expect(events.at(-1).type).toBe('cancelled');
+});
+it('normalizes allowed-tools string arrays as inert metadata and still requires execution approval',async()=>{
+ const {parseSkill}=await import('../apps/host/src/skills.js');
+ const main='---\nname: review-notes\ndescription: Fixture\nallowed-tools: [read, write, bash]\n---\nFixture body';
+ const parsed=parseSkill(main);expect(parsed.allowedTools).toBe('read write bash');expect(parsed.warnings.join(' ')).toContain('不授予权限');expect(parsed.warnings.join(' ')).toContain('兼容');
+ expect(parseSkill(main.replace('[read, write, bash]','read write bash')).allowedTools).toBe('read write bash');
+ for(const value of ['42','true','{read: true}','[read, 2]','[read, null]','[[read]]','[""]'])expect(()=>parseSkill(main.replace('[read, write, bash]',value))).toThrow('allowed-tools');
+ const s=await setup(zip([{path:'SKILL.md',text:main},{path:'README.md',text:'readme'}])),d=await s.run('http_download',{url:'https://example.com/a.zip'});
+ const inspected=await s.run('skill_inspect_package',{artifactId:d.artifactId,root:'',path:'SKILL.md'});expect(inspected.metadataValid).toBe(true);expect(inspected.content).toBe(main);
+ const plan=await s.prepare('skill_install_package',{artifactId:d.artifactId,root:''});expect(s.registry.info()).toHaveLength(0);await plan.execute(signal());expect(s.registry.info()[0].enabled).toBe(false);expect(s.service.hostExecutionEnabled).toBe(false);expect(s.tools.find(t=>t.name==='process_run_skill')!.requiresApproval).toBe(true);
+});
+it('invalid skill metadata does not block bounded safe archive text review, but still blocks installation',async()=>{
+ const main='---\nname: review-notes\ndescription: Fixture\nallowed-tools: {read: true}\n---\nFixture body';
+ const s=await setup(zip([{path:'pkg/SKILL.md',text:main},{path:'pkg/README.md',text:'readme'},{path:'pkg/_meta.json',text:'{"version":"fixture"}'},{path:'pkg/binary.bin',text:'\0'},{path:'pkg/large.txt',text:'a'.repeat(65537)}])),d=await s.run('http_download',{url:'https://example.com/a.zip'});
+ for(const [path,content] of [['SKILL.md',main],['README.md','readme'],['_meta.json','{"version":"fixture"}']]){const result=await s.run('skill_inspect_package',{artifactId:d.artifactId,root:'pkg',path});expect(result.content).toBe(content);expect(result.metadataValid).toBe(false);expect(result.metadataError).toContain('allowed-tools');expect(result.untrusted).toBe(true);}
+ await expect(s.prepare('skill_install_package',{artifactId:d.artifactId,root:'pkg'})).rejects.toThrow('allowed-tools');expect(s.registry.info()).toHaveLength(0);
+ for(const path of ['../README.md','binary.bin','large.txt'])await expect(s.run('skill_inspect_package',{artifactId:d.artifactId,root:'pkg',path})).rejects.toThrow();
+ const other=s.service.tools('another').find(t=>t.name==='skill_inspect_package')!;await expect((await other.prepare!({artifactId:d.artifactId,root:'pkg',path:'README.md'},signal())).execute(signal())).rejects.toThrow('其他任务');
+ const dangerous=await setup(zip([{path:'SKILL.md',text:main},{path:'README.md',text:'safe'},{path:'../escape',text:'bad'}])),bad=await dangerous.run('http_download',{url:'https://example.com/bad.zip'});await expect(dangerous.run('skill_inspect_package',{artifactId:bad.artifactId,root:'',path:'README.md'})).rejects.toThrow(/ZIP/);
 });

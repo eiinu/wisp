@@ -24,9 +24,13 @@ export function readArchive(bytes:Buffer,signal:AbortSignal):Promise<ArchiveFile
   });zip.readEntry();
  });});
 }
-export function selectSkill(files:ArchiveFile[],root:string){
+export function selectArchiveFiles(files:ArchiveFile[],root:string){
  if(root!==''&&!archivePath(root))throw new Error('无效技能子目录');const prefix=root?root+'/':'';
  const selected=files.filter(f=>f.path.startsWith(prefix)).map(f=>({...f,path:f.path.slice(prefix.length)}));
+ return selected;
+}
+export function selectSkill(files:ArchiveFile[],root:string){
+ const selected=selectArchiveFiles(files,root);
  const main=selected.find(f=>f.path==='SKILL.md');if(!main||main.data.length>65536)throw new Error('所选目录缺少完整 SKILL.md 或正文超限');
  let text:string;try{text=new TextDecoder('utf-8',{fatal:true}).decode(main.data);}catch{throw new Error('SKILL.md 必须为 UTF-8');}
  const meta=parseSkill(text);return {files:selected,meta};

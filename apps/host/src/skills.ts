@@ -26,9 +26,12 @@ export function parseSkill(text:string,directoryName?:string) {
   if(typeof description!=='string'||!description.trim()||description.length>1024)throw new Error('description 必须为 1–1024 字符');
   if(meta.compatibility!==undefined&&(typeof meta.compatibility!=='string'||!meta.compatibility.length||meta.compatibility.length>500))throw new Error('compatibility 最多 500 字符');
   if(meta.license!==undefined&&typeof meta.license!=='string')throw new Error('license 必须是文本');
-  if(meta['allowed-tools']!==undefined&&typeof meta['allowed-tools']!=='string')throw new Error('allowed-tools 必须是文本');
+  const declaredTools=meta['allowed-tools'],arrayTools=Array.isArray(declaredTools);
+  if(declaredTools!==undefined&&typeof declaredTools!=='string'&&!(arrayTools&&declaredTools.length<=100&&declaredTools.every(v=>typeof v==='string'&&v.trim().length>0&&v.length<=256&&!/[\x00-\x1f]/.test(v))))throw new Error('allowed-tools 必须是文本或最多 100 项非空文本数组');
+  const allowedTools=arrayTools?declaredTools.map(v=>(v as string).trim()).join(' '):declaredTools as string|undefined;
+  if(allowedTools!==undefined&&allowedTools.length>4096)throw new Error('allowed-tools 最多 4096 字符');
   if(meta.metadata!==undefined&&(!meta.metadata||typeof meta.metadata!=='object'||Array.isArray(meta.metadata)||Object.values(meta.metadata).some(v=>typeof v!=='string')))throw new Error('metadata 必须为文本键值');
-  return {name,description,compatibility:meta.compatibility as string|undefined,body:match[2],warnings:[...(meta['allowed-tools']?['allowed-tools 不授予权限，现有审批仍有效']:[]),...(meta.compatibility?['环境要求由技能声明；Wisp 不自动安装或验证依赖']:[])]};
+  return {name,description,allowedTools,compatibility:meta.compatibility as string|undefined,body:match[2],warnings:[...(arrayTools?['allowed-tools 数组按兼容格式规范化为文本；标准格式为空格分隔字符串']:[]),...(meta['allowed-tools']?['allowed-tools 不授予权限，现有审批仍有效']:[]),...(meta.compatibility?['环境要求由技能声明；Wisp 不自动安装或验证依赖']:[])]};
 }
 export class SkillRegistry {
   private records:RecordEntry[]=[];

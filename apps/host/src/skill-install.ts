@@ -5,7 +5,7 @@ import {join,relative,sep} from 'node:path';
 import {Ajv} from 'ajv';
 import type {Tool} from '@wisp/core';
 import {PublicHttp,displayUrl} from './public-http.js';
-import {readArchive,selectSkill,sha256,archivePath,type ArchiveFile} from './skill-archive.js';
+import {readArchive,selectSkill,selectArchiveFiles,sha256,archivePath,type ArchiveFile} from './skill-archive.js';
 import {SkillRegistry,type SkillSnapshot} from './skills.js';
 import {detectInterpreters,binaryIdentity,runHostProcess,type ProcessRunner} from './host-process.js';
 const object=(properties:Record<string,unknown>,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -42,9 +42,10 @@ export class SkillInstall {
   this.tool('skill_inspect_package','Inspect the ENTIRE staged ZIP without execution. Choose the SKILL.md parent directory from roots before installing. Returns file hashes/sizes, script presence, metadata and unverified dependency status. Optional root+path reads a bounded UTF-8 file for source review, including scripts, without execution. Does not install or approve anything.',object({artifactId:id,root:{type:'string',maxLength:240},path:{type:'string',maxLength:240}},['artifactId']),async args=>({description:'检查完整 ZIP 内容（不运行）',execute:async signal=>{
    const a=this.artifact(owner,args.artifactId as string),files=await readArchive(a.body,signal);
    const roots=files.filter(f=>f.path==='SKILL.md'||f.path.endsWith('/SKILL.md')).map(f=>f.path==='SKILL.md'?'':f.path.slice(0,-9));
-   const selected=args.root!==undefined?selectSkill(files,args.root as string):undefined;let content:string|undefined;
-   if(args.path!==undefined){if(!selected||!archivePath(args.path as string))throw new Error('阅读文件需要已选择 root 与安全相对 path');const file=selected.files.find(f=>f.path===args.path);if(!file||file.data.length>65536)throw new Error('文件缺失或超过 64 KiB 审阅上限');try{content=new TextDecoder('utf-8',{fatal:true}).decode(file.data);}catch{throw new Error('文件不是 UTF-8');}if(/[\x00-\x08\x0b\x0e-\x1f]/.test(content))throw new Error('不是纯文本');}
-   return JSON.stringify({artifactId:a.id,source:a.source,sha256:a.hash,roots,files:files.map(f=>({path:f.path,bytes:f.data.length,sha256:f.sha256})),path:args.path,content,name:selected?.meta.name,description:selected?.meta.description,compatibility:selected?.meta.compatibility,dependencies:'未验证；不会安装运行时或依赖',untrusted:true});
+   const selectedFiles=args.root!==undefined?selectArchiveFiles(files,args.root as string):undefined;let selected:ReturnType<typeof selectSkill>|undefined,metadataError:string|undefined,content:string|undefined;
+   if(selectedFiles){try{selected=selectSkill(files,args.root as string);}catch(error){metadataError=error instanceof Error?error.message:'技能元数据无效';}}
+   if(args.path!==undefined){if(!selectedFiles||!archivePath(args.path as string))throw new Error('阅读文件需要已选择 root 与安全相对 path');const file=selectedFiles.find(f=>f.path===args.path);if(!file||file.data.length>65536)throw new Error('文件缺失或超过 64 KiB 审阅上限');try{content=new TextDecoder('utf-8',{fatal:true}).decode(file.data);}catch{throw new Error('文件不是 UTF-8');}if(/[\x00-\x08\x0b\x0e-\x1f]/.test(content))throw new Error('不是纯文本');}
+   return JSON.stringify({artifactId:a.id,source:a.source,sha256:a.hash,roots,files:files.map(f=>({path:f.path,bytes:f.data.length,sha256:f.sha256})),path:args.path,content,metadataValid:args.root===undefined?undefined:!metadataError,metadataError,warnings:selected?.meta.warnings,name:selected?.meta.name,description:selected?.meta.description,compatibility:selected?.meta.compatibility,dependencies:'未验证；不会安装运行时或依赖',untrusted:true});
   }}),false),
   this.tool('skill_install_package','Install a complete staged ZIP skill after source/file review and approval. root is an inspected SKILL.md parent; empty for ZIP root. Default disabled, no scripts run. Optional replaceId updates only a Wisp-managed skill, with version check; never overwrites external folders. New skills apply next task.',object({artifactId:id,root:{type:'string',maxLength:240},replaceId:id},['artifactId','root']),async(args,signal)=>{
    const artifact=this.artifact(owner,args.artifactId as string),selected=selectSkill(await readArchive(artifact.body,signal),args.root as string);
