@@ -10,3 +10,6 @@ web-preview-dist/
 !.env.example
 *.enc
 release/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+.vercel/

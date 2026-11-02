@@ -25,4 +25,4 @@ Wisp 是运行在自己电脑上的个人 Agent 工作台。通过对话调用�
 
 ## 文档
 
-[开发与运行](docs/development.md) · [打包与下载](docs/packaging.md) · [工具与权限](docs/chat-tools.md) · [问答组件](docs/questionnaire.md) · [模型接入](docs/models.md) · [本地 MCP](docs/local-mcp.md)
+[文档首页](docs/index.md) · [文档站与部署](docs/documentation.md) · [开发与运行](docs/development.md) · [打包与下载](docs/packaging.md) · [工具与权限](docs/chat-tools.md) · [问答组件](docs/questionnaire.md) · [模型接入](docs/models.md) · [本地 MCP](docs/local-mcp.md)
