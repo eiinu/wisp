@@ -1,3 +1,6 @@
+export * from './images.js';
+import type {ChatImage} from './images.js';
+import {IMAGE_LIMIT,IMAGE_COUNT} from './images.js';
 export * from './questionnaire.js';
 import { questionResponseSchema } from './questionnaire.js';
 import { z } from 'zod';
@@ -7,7 +10,7 @@ export const eventSchema = z.object({
   data: z.record(z.string(), z.unknown()),
 });
 export type RunEvent = z.infer<typeof eventSchema>;
-export type Message = { role: 'user' | 'assistant' | 'tool'; transient?: boolean; text: string; callId?: string; toolName?: string; isError?: boolean; calls?: ToolCall[]; continuation?: PrivateContinuation };
+export type Message = { role: 'user' | 'assistant' | 'tool'; transient?: boolean; images?: (ChatImage & {dataUrl?:string})[]; text: string; callId?: string; toolName?: string; isError?: boolean; calls?: ToolCall[]; continuation?: PrivateContinuation };
 export type ModelReply = { text: string; calls?: { id: string; name: string; args: Record<string, unknown> }[] };
 export interface GenerationProvider { generate(messages: Message[], tools: ToolSpec[], signal: AbortSignal, onText?: (text: string) => void): Promise<ModelReply> }
 export interface ToolSpec { name: string; description: string; inputSchema: Record<string, unknown> }
@@ -71,7 +74,9 @@ export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('session.restore'), sessionId: sid }).strict(),
   z.object({ type: z.literal('session.rename'), sessionId: sid, title: z.string().trim().min(1).max(100) }),
   z.object({ type: z.literal('session.select'), sessionId: sid }),
-  z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().min(1).max(16000), skillIds:z.array(sid).max(3).refine(ids=>new Set(ids).size===ids.length).optional(), maxSteps: z.number().int().min(1).max(20).default(8) }),
+  z.object({type:z.literal('images.import'),sessionId:sid,name:z.string().min(1).max(160),data:z.string().min(4).max(Math.ceil(IMAGE_LIMIT/3)*4)}).strict(),
+  z.object({type:z.literal('images.read'),sessionId:sid,id:sid}).strict(),
+  z.object({ type: z.literal('run.start'), sessionId: sid, prompt: z.string().trim().max(16000), imageIds:z.array(sid).max(IMAGE_COUNT).refine(ids=>new Set(ids).size===ids.length).optional(), skillIds:z.array(sid).max(3).refine(ids=>new Set(ids).size===ids.length).optional(), maxSteps: z.number().int().min(1).max(20).default(8) }),
   z.object({ type: z.literal('run.retry'), sessionId: sid }),
   z.object({ type: z.literal('run.cancel'), sessionId: sid, runId: sid }),
   z.object({ type:z.literal('run.answer'), sessionId:sid, runId:sid, ticket:sid, response:questionResponseSchema }).strict(),
@@ -90,12 +95,12 @@ export interface ProjectInfo { id: string; name: string; workspace: string; coll
 export interface SessionInfo { archivedAt?: string; projectId?: string; id: string; title: string; createdAt: string; updatedAt: string; workspace?: string; activeRunId?: string }
 export interface BrowserStatus { state: 'disabled' | 'connecting' | 'connected' | 'failed'; toolCount: number; message?: string }
 export interface SkillInfo { managed?:boolean; id:string; name:string; description:string; source:string; enabled:boolean; version:string; compatibility?:string; warnings:string[]; error?:string }
-export interface Snapshot { hostExecutionEnabled?:boolean; skills?:SkillInfo[]; assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
+export interface Snapshot { imageInputSupported?:boolean; hostExecutionEnabled?:boolean; skills?:SkillInfo[]; assistantSetting?: string; mcpServers?: McpServerInfo[]; projects?: ProjectInfo[]; sessions: SessionInfo[]; selectedId?: string; config?: ModelConfig; keyPresent: boolean; credential?: { storage: 'secure' | 'session'; saved: boolean; error?: string }; events: RunEvent[]; browserConnected: boolean; browserSessions?: Record<string, BrowserStatus> }
 export interface FileEntry { name: string; path: string; kind: 'directory' | 'file'; size: number }
 export interface FilePreview { path: string; kind: 'text' | 'markdown' | 'image' | 'unsupported'; text?: string; dataUrl?: string; size: number }
 export type PreviewTabAction = 'reload' | 'back' | 'forward' | 'close';
 export interface TabActionDelivery { tab: PreviewTabMetadata; action: PreviewTabAction }
-export interface Result { tabAction?: TabActionDelivery; actionStatus?: string; preview?: { ticket: string; url: string }; projectId?: string; models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
+export interface Result { image?:ChatImage; imageDataUrl?:string; tabAction?: TabActionDelivery; actionStatus?: string; preview?: { ticket: string; url: string }; projectId?: string; models?: ModelInfo[]; snapshot?: Snapshot; sessionId?: string; entries?: FileEntry[]; file?: FilePreview }
 export type PreviewNotice = { type: 'preview.open'; sessionId: string; ticket: string };
 export type Notice = PreviewNotice | {type:'preview.action'|'preview.action.cancel';sessionId:string;ticket:string} | { type:'preview.tabs'; sessionId:string; ticket:string } | { type: 'event'; event: RunEvent } | { type: 'changed' } | { type: 'disconnected'; message: string };
 export interface WorkbenchBridge { request(request: Request): Promise<Result>; subscribe(listener: (notice: Notice) => void): () => void }

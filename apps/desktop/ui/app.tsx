@@ -1,3 +1,5 @@
+import {ImagePicker,MessageImages,type DraftImage} from './chat-images.js';
+import {supportsImages,imageSchema} from '@wisp/core';
 import { SkillPicker, SkillActivity } from './skills.js';
 import { SubagentActivity } from './subagent-activity.js';
 import {tabActionDelivery,type TabActionHandler} from './tab-action-delivery.js';
@@ -42,6 +44,10 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
   const [modalPending, setModalPending] = useState(false);
   const composerInput = useRef<HTMLTextAreaElement>(null), modalReturn = useRef<HTMLElement | null>(null);
   const openModal = (value: 'settings' | 'workspace' | 'connect', trigger?: HTMLElement) => { if (value === 'settings' || value === 'connect') { setSettingsSection(value === 'connect' ? 'connection' : 'model'); settingsReturn.current = trigger ?? document.activeElement as HTMLElement; setSettingsOpen(true); return; } modalReturn.current = trigger ?? document.activeElement as HTMLElement; setModal(value); };
+  const [imageDrafts,setImageDrafts]=useState<Record<string,DraftImage[]>>({}),[readingImages,setReadingImages]=useState(false);
+  const uploadedImages=useRef(new Map<string,string>());
+  const draftImages=imageDrafts[selected??'new']??[];
+  const vision=snapshot.imageInputSupported??supportsImages(snapshot.config);
   const [workspace, setWorkspace] = useState('');
   const [previews, updatePreview] = useReducer((states:Record<string,PreviewState>, input:{session:string;action:PreviewAction})=>({...states,[input.session]:previewReducer(states[input.session]??{tabs:[]},input.action)}), {});
   const preview = previews[selected??'']??{tabs:[]};
@@ -136,17 +142,20 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
   const availableSkills=snapshot.skills??[];
   const selectedSkills=(skillChoices[selected??'new']??[]).filter(id=>availableSkills.some(skill=>skill.id===id&&skill.enabled&&!skill.error));
   const send = async () => {
-    if (!connected || !modelReady || !prompt.trim() || active || sendLock.current) return;
+    if (!connected || !modelReady || (!prompt.trim()&&!draftImages.length) || (draftImages.length&&!vision) || readingImages || active || sendLock.current) return;
     sendLock.current = true;
-    const originalPrompt = prompt, savedPrompt = prompt.trim(), original = selected ?? 'new'; setBusy(true);
+    const originalPrompt = prompt, savedPrompt = prompt.trim(), original = selected ?? 'new', originalImages=draftImages; setBusy(true);
     await action(async () => {
       let id = selected;
-      if (!id) id = (await api({ type: 'session.create', title: savedPrompt.slice(0, 30) })).sessionId;
+      if (!id) {id = (await api({ type: 'session.create', title: savedPrompt.slice(0, 30)||'图片对话' })).sessionId;if(id){const created=id;setDrafts(d=>({...d,new:'',[created]:originalPrompt}));setImageDrafts(d=>({...d,new:[],[created]:originalImages}));}}
       if (!id) throw new Error('创建会话失败');
       if ((selectedRef.current ?? 'new') === original) setSelected(id);
-      await api({ type: 'run.start', sessionId: id, prompt: savedPrompt, maxSteps: 8, ...(selectedSkills.length?{skillIds:selectedSkills}:{}) });
-      if (current?.title === '新会话') await api({ type: 'session.rename', sessionId: id, title: savedPrompt.slice(0, 30) });
-      setDrafts(d => d[original] === originalPrompt ? { ...d, [original]: '' } : d);
+      const imageIds:string[]=[];
+      for(const image of originalImages){const cacheKey=`${id}:${image.key}`;let imageId=uploadedImages.current.get(cacheKey);if(!imageId){const result=await api({type:'images.import',sessionId:id,name:image.name,data:image.data});if(!result.image)throw new Error('图片未保存');imageId=result.image.id;uploadedImages.current.set(cacheKey,imageId);}imageIds.push(imageId);}
+      await api({ type: 'run.start', sessionId: id, prompt: savedPrompt, maxSteps: 8, ...(imageIds.length?{imageIds}:{}), ...(selectedSkills.length?{skillIds:selectedSkills}:{}) });
+      if (current?.title === '新会话') await api({ type: 'session.rename', sessionId: id, title: savedPrompt.slice(0, 30)||'图片对话' });
+      const sentId=id;setImageDrafts(d=>({...d,...(d[original]===originalImages?{[original]:[]}:{}),...(d[sentId]===originalImages?{[sentId]:[]}:{})}));
+      setDrafts(d => ({...d,...(d[original]===originalPrompt?{[original]:''}:{}),...(d[sentId]===originalPrompt?{[sentId]:''}:{})}));
     }); sendLock.current = false; setBusy(false);
   };
   const approve = async (sessionId: string, runId: string, callId: string, allowed: boolean) => {
@@ -186,7 +195,7 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
           const steps = [...new Set(run.filter(e => e.type === 'assistant' || e.type === 'assistant_delta').map(e => Number(e.data.step ?? 0)))];
           const {answers} = groupExecution(run);
           const pending = run.filter(e => e.type === 'approval_requested' && !run.some(n => n.type === 'approval_resolved' && n.data.callId === e.data.id));
-          return <div className="turn" key={runId}><div className="user-message">{String(start?.data.prompt ?? '')}</div><div className="assistant-message"><span className="assistant-mark">w</span><div className="assistant-body">
+          return <div className="turn" key={runId}><div className="user-message">{String(start?.data.prompt ?? '')}{Array.isArray(start?.data.images)&&<MessageImages key={`${selected}:${runId}`} images={start.data.images.flatMap(i=>{const parsed=imageSchema.safeParse(i);return parsed.success?[parsed.data]:[];})} sessionId={selected!} request={api} onResend={!active&&!busy&&!readingImages?images=>{if(images.length+draftImages.length>4){setError('每次最多选择 4 张图片');return;}setImageDrafts(d=>({...d,[selected??'new']:[...draftImages,...images]}));composerInput.current?.focus();}:undefined}/>}</div><div className="assistant-message"><span className="assistant-mark">w</span><div className="assistant-body">
 
             <SkillActivity events={run}/><ToolActivity openArtifact={(title,text)=>{if(selected)openPreview({kind:'artifact',sessionId:selected,title,text});}} events={run} ended={!!terminal} canPreview={connected && !!current?.workspace} previewUnavailableReason={!connected ? '本机服务未连接，连接后可预览文件' : '此会话尚未授权工作目录，授权后可预览文件'} openFile={path => { if (selected && current?.workspace) openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path}); }}/>
             <SubagentActivity openArtifact={(title,text)=>{if(selected)openPreview({kind:'artifact',sessionId:selected,title,text});}} events={events} parentRunId={runId} sessionId={selected!} connected={connected} request={api} canPreview={connected&&!!current?.workspace} openFile={path=>{if(selected&&current?.workspace)openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path});}}/>
@@ -198,7 +207,7 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
             {!terminal && !steps.length && !pending.length && !run.some(e=>e.type==='question_requested') && <span className="thinking">正在思考<span>•••</span></span>}
           </div></div></div>;
         })}<div ref={bottom}/></div>
-        <div className="composer-area">{connected && (!modelReady || snapshot.credential?.error) && <div className="model-guidance"><span>{snapshot.credential?.error ?? '配置模型后即可开始对话'}</span><button onClick={event => openModal('settings', event.currentTarget)}>前往设置</button></div>}{awayFromBottom && <button className="latest-message" onClick={() => { followStream.current = true; setAwayFromBottom(false); bottom.current?.scrollIntoView({ block: 'end' }); }}><WorkspaceIcon name="down"/> 回到最新消息</button>}{error && <div className="error" role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误"><WorkspaceIcon name="close"/></button></div>}<form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}><textarea ref={composerInput} aria-label="消息" placeholder={connected ? modelReady ? '给 Wisp 发消息…' : '先在设置中连接模型…' : '连接本机 Host 后开始对话…'} value={prompt} onChange={e => setDrafts(d => ({ ...d, [selected ?? 'new']: e.target.value }))} maxLength={16000} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/><SkillPicker skills={availableSkills} selected={selectedSkills} onChange={ids=>setSkillChoices(previous=>({...previous,[selected??'new']:ids}))} disabled={!connected||!!active||busy}/><div className="composer-toolbar"><button type="button" className="workspace-chip" onClick={chooseWorkspace} title={current?.workspace ?? '授权工作目录'}><WorkspaceIcon name="plus"/><span>{current?.workspace ? current.workspace.split(/[\\/]/).at(-1) : '授权工作目录'}</span></button><div><small>{snapshot.config?.provider === 'offline' ? '离线验证 · 真实文件工具' : '每项任务最多 8 步'}</small>{active ? <button type="button" className="send" aria-label="取消执行" onClick={() => void action(() => api({ type: 'run.cancel', sessionId: selected!, runId: active }))}><WorkspaceIcon name="stop"/></button> : <button className="send" aria-label="发送" disabled={!connected || !modelReady || !prompt.trim() || busy}><WorkspaceIcon name="up"/></button>}</div></div></form><p className="composer-footnote">{current?.workspace ? `${current.projectId ? '继承项目目录权限' : '仅访问此会话授权的目录'}。文件写入始终需要你的批准。` : '你的文件与执行过程保留在本机。模型可能会出错，请核对重要结果。'}</p></div>
+        <div className="composer-area">{connected && (!modelReady || snapshot.credential?.error) && <div className="model-guidance"><span>{snapshot.credential?.error ?? '配置模型后即可开始对话'}</span><button onClick={event => openModal('settings', event.currentTarget)}>前往设置</button></div>}{awayFromBottom && <button className="latest-message" onClick={() => { followStream.current = true; setAwayFromBottom(false); bottom.current?.scrollIntoView({ block: 'end' }); }}><WorkspaceIcon name="down"/> 回到最新消息</button>}{error && <div className="error" role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误"><WorkspaceIcon name="close"/></button></div>}<form className="composer" onSubmit={e => { e.preventDefault(); void send(); }}><textarea ref={composerInput} aria-label="消息" placeholder={connected ? modelReady ? '给 Wisp 发消息…' : '先在设置中连接模型…' : '连接本机 Host 后开始对话…'} value={prompt} onChange={e => setDrafts(d => ({ ...d, [selected ?? 'new']: e.target.value }))} maxLength={16000} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }}/><ImagePicker key={selected??'new'} images={draftImages} onChange={images=>setImageDrafts(d=>({...d,[selected??'new']:images}))} disabled={!connected||!!active||busy} onError={setError} onPending={setReadingImages} pasteTarget={composerInput}/>{draftImages.length>0&&<small className="image-capability-note" role="status">{vision?'发送时会将这些图片及本会话已发送图片传给模型。':'当前模型不支持图片，请切换 DeepSeek 视觉模型；图片不会被丢弃。'}</small>}<SkillPicker skills={availableSkills} selected={selectedSkills} onChange={ids=>setSkillChoices(previous=>({...previous,[selected??'new']:ids}))} disabled={!connected||!!active||busy}/><div className="composer-toolbar"><button type="button" className="workspace-chip" onClick={chooseWorkspace} title={current?.workspace ?? '授权工作目录'}><WorkspaceIcon name="plus"/><span>{current?.workspace ? current.workspace.split(/[\\/]/).at(-1) : '授权工作目录'}</span></button><div><small>{snapshot.config?.provider === 'offline' ? '离线验证 · 真实文件工具' : '每项任务最多 8 步'}</small>{active ? <button type="button" className="send" aria-label="取消执行" onClick={() => void action(() => api({ type: 'run.cancel', sessionId: selected!, runId: active }))}><WorkspaceIcon name="stop"/></button> : <button className="send" aria-label="发送" disabled={!connected || !modelReady || (!prompt.trim()&&!draftImages.length) || (draftImages.length>0&&!vision) || readingImages || busy}><WorkspaceIcon name="up"/></button>}</div></div></form><p className="composer-footnote">{current?.workspace ? `${current.projectId ? '继承项目目录权限' : '仅访问此会话授权的目录'}。文件写入始终需要你的批准。` : '你的文件与执行过程保留在本机。模型可能会出错，请核对重要结果。'}</p></div>
       </main>
 
 

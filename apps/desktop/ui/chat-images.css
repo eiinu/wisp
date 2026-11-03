@@ -1,0 +1,12 @@
+.chat-image-list { display:flex; flex-wrap:wrap; gap:10px; min-width:0; }
+.chat-image-list figure { position:relative; margin:0; width:110px; max-width:100%; padding:5px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+.chat-image-list img { width:100%; height:80px; object-fit:contain; border-radius:8px; }
+.chat-image-list figcaption { font-size:11px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; padding-top:4px; }
+.chat-image-list figure>button { position:absolute; top:2px; right:2px; width:26px; height:26px; padding:4px; background:white; border:1px solid var(--border); border-radius:50%; }
+.chat-image-controls { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.chat-image-controls button { display:flex; align-items:center; gap:6px; }
+.chat-image-controls small,.image-capability-note { font-size:12px; color:var(--text-muted); }
+.chat-images-picker { padding:0 10px 8px; }
+.message-images { margin-top:8px; max-width:100%; }
+.message-images>button { font-size:12px; margin-top:6px; }
+.image-capability-note { display:block; padding:0 12px 6px; }

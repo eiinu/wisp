@@ -1,6 +1,7 @@
 import React from 'react';
 
 export const iconPaths = {
+  image: 'M3 3h18v18H3zM3 17l6-6 4 4 3-3 5 5M7 7h.01',
   archive: 'M3 3h18v5H3zM5 8v13h14V8M9 12h6',
   restore: 'M3 3h18v5H3zM5 8v13h14V8M12 18v-7m-3 3 3-3 3 3',
   chevron: 'm9 5 7 7-7 7',

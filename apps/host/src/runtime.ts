@@ -1,3 +1,5 @@
+import {ImageStore} from './images.js';
+import {supportsImages,imageSchema,type ChatImage,type ModelInfo} from '@wisp/core';
 import type {PublicHttp} from './public-http.js';
 import type {ProcessRunner,detectInterpreters} from './host-process.js';
 import { SkillInstall } from './skill-install.js';
@@ -35,6 +37,10 @@ export class Runtime {
   private busy = new Set<string>();
   private tasks = new Set<Promise<void>>();
   private listeners = new Set<(notice: Notice) => void>();
+  private imageStores=new Map<string,ImageStore>();
+  private modelCatalog?:{key:string;models:ModelInfo[]};
+  private images(id:string){let store=this.imageStores.get(id);if(!store){store=new ImageStore(this.store.directory,id);this.imageStores.set(id,store);}return store;}
+  private imageSupport(){const config=this.store.state.config;return supportsImages(config,this.modelCatalog?.key===`${config?.provider}:${config?.baseUrl}`?this.modelCatalog.models:undefined);}
   private key = '';
   private keyChanging = false;
   private protectedKey = false;
@@ -64,7 +70,7 @@ export class Runtime {
   private idle(id: string) { if (this.busy.has(id)) throw new Error('会话仍在执行，请先取消或等待完成'); }
   private redact = (text: string) => this.key ? text.split(this.key).join('[REDACTED]') : text;
   private project(id: string) { const project = this.store.state.projects.find(p => p.id === id); if (!project) throw new Error('项目不存在'); return project; }
-  snapshot(): Snapshot { return structuredClone({ ...this.store.state, projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, skills:this.skills.info(), hostExecutionEnabled:this.skillInstall.hostExecutionEnabled, mcpServers: this.mcp.snapshot(), browserConnected: false }); }
+  snapshot(): Snapshot { return structuredClone({ ...this.store.state, imageInputSupported:this.imageSupport(), projects: this.store.state.projects.map(({identity: _identity, ...project}) => project), sessions: this.store.state.sessions.map(session => ({ ...session, workspace: session.projectId ? this.project(session.projectId).workspace : session.workspace })), keyPresent: !!this.key, credential: this.credential, events: this.events, skills:this.skills.info(), hostExecutionEnabled:this.skillInstall.hostExecutionEnabled, mcpServers: this.mcp.snapshot(), browserConnected: false }); }
   private cancelMcpCalls(serviceId:string) {
     for(const [sessionId,parent] of this.agents) for(const agent of [parent,...(this.families.get(sessionId)?.entries()??[])]){
       const runId=agent.activeRunId;if(!runId)continue;
@@ -80,8 +86,8 @@ export class Runtime {
     if (config.provider === 'offline') return () => asModelProvider(offlineProvider);
     if (!this.key) throw new Error('API Key 未在当前 Host 进程中设置');
     if (this.protectedKey && !officialDeepSeek(config)) throw new Error('持久化 DeepSeek Key 仅限官方 API');
-    const snapshot=structuredClone(config), key=this.key, setting=this.store.state.assistantSetting??'';
-    return () => configuredProvider(snapshot,key,setting);
+    const snapshot=structuredClone(config), key=this.key, setting=this.store.state.assistantSetting??'', vision=this.imageSupport();
+    return () => configuredProvider(snapshot,key,setting,vision);
   }
   async request(input: unknown): Promise<Result> {
     const parsed = requestSchema.safeParse(input); if (!parsed.success) throw new Error('请求格式不正确');
@@ -102,7 +108,7 @@ export class Runtime {
     if (command.type === 'mcp.disable') { this.cancelMcpCalls(command.id); await this.mcp.disable(command.id); return {snapshot:this.snapshot()}; }
     if (command.type === 'mcp.delete') { this.cancelMcpCalls(command.id); await this.mcp.delete(command.id); return {snapshot:this.snapshot()}; }
     if (command.type === 'mcp.refresh') { await this.mcp.refresh(command.id); return {snapshot:this.snapshot()}; }
-    if (command.type === 'model.list') return { models: await this.provider().listModels({ signal: AbortSignal.timeout(10000) }) };
+    if (command.type === 'model.list') {const config=this.store.state.config,models=await this.provider().listModels({signal:AbortSignal.timeout(10000)});this.modelCatalog={key:`${config?.provider}:${config?.baseUrl}`,models};this.publish({type:'changed'});return{models};}
     if (command.type === 'project.create') {
       const files = await WorkspaceFiles.grant(command.path, this.store.directory); await files.resolve('');
       const stat = await lstat(files.root, { bigint: true }), id = randomUUID();
@@ -168,7 +174,9 @@ export class Runtime {
       }
       await this.store.save(); this.publish({type: 'changed'}); return {};
     }
+    if(command.type==='images.read'){const value=await this.images(session.id).read(command.id);return{image:value.image,imageDataUrl:value.dataUrl};}
     if (session.archivedAt) throw new Error('此对话已归档，请先恢复后再操作');
+    if(command.type==='images.import'){this.idle(session.id);return{image:await this.images(session.id).import(command.name,command.data)};}
     if(command.type==='preview.action.claim')return this.tabActions.claim(session.id,command.ticket);
     if(command.type==='preview.action.execute')return this.tabActions.execute(session.id,command.ticket,()=>this.workspace(session));
     if(command.type==='preview.action.complete'){this.tabActions.complete(session.id,command.ticket,command.applied);return{};}
@@ -196,6 +204,7 @@ export class Runtime {
         const skills=command.type==='files.write'?undefined:this.skills.capture();
         let selectedSkills=command.type==='run.start'?command.skillIds??[]:[];
         let childProvider: (() => ModelProvider) | undefined;
+        let images:ChatImage[]=[];
         let prompt: string, maxSteps = 8, provider: ModelProvider | GenerationProvider;
         if (command.type === 'files.write') {
           const workspace = await this.workspace(session); await workspace.resolve(command.path, true);
@@ -209,15 +218,17 @@ export class Runtime {
             if (!last || !previous.some(e => e.runId === last.runId && ['failed', 'cancelled'].includes(e.type))) throw new Error('没有可重试的失败或取消任务');
             if (previous.some(e => e.runId === last.runId && e.type === 'tool_requested' && !['files_read', 'files_list'].includes(String(e.data.name)))) throw new Error('此任务已经请求过工具，不能自动重放；请检查执行结果后发送新指令');
             if (String(last.data.prompt).startsWith('手动保存文件：')) throw new Error('请重新打开文件编辑器确认写入内容');
+            images=Array.isArray(last.data.images)?last.data.images.map(i=>imageSchema.parse(i)):[];
             prompt = String(last.data.prompt); maxSteps = Number(last.data.maxSteps);
             selectedSkills=Array.isArray(last.data.skillIds)?last.data.skillIds.filter((id):id is string=>typeof id==='string'):[];
-          } else { prompt = command.prompt; maxSteps = command.maxSteps; }
+          } else { prompt = command.prompt; maxSteps = command.maxSteps; images=await this.images(session.id).references(command.imageIds??[]); if(!prompt.trim()&&!images.length)throw new Error('请输入消息或选择图片'); }
         }
         const runSkills=skills?.execution(selectedSkills);
         const tools = new Registry<Tool>(); tools.register('ask_user',askUserTool); tools.register('open_webpage', this.previews.tool(session.id)); tools.register('list_preview_tabs',this.tabs.tool(session.id,async path=>{await(await this.workspace(session)).resolve(path);})); tools.register('preview_tab_action',this.tabActions.tool(session.id)); tools.register('read_webpage', pageReadTool(session.id, () => this.store.state.selectedId, this.desktop,this.tabs)); if (session.workspace || session.projectId) for (const tool of (await this.workspace(session)).tools(this.desktop)) tools.register(tool.name, tool);
 
         const conversation = new ConversationStore(this.store.directory, session.id);
-        const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && !e.parentRunId && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text) }));
+        const history: Message[] = command.type === 'files.write' ? [] : (await conversation.read()) ?? this.events.filter(e => e.sessionId === session.id && !e.parentRunId && (e.type === 'started' || e.type === 'assistant')).slice(-30).map(e => ({ role: e.type === 'started' ? 'user' : 'assistant', text: String(e.data.prompt ?? e.data.text),...(e.type==='started'&&Array.isArray(e.data.images)?{images:e.data.images.map(i=>imageSchema.parse(i))}:{}) }));
+        if(images.length||history.some(m=>m.images?.length)){if(!this.imageSupport())throw new Error('当前模型不支持图片，请选择 DeepSeek 视觉模型或新建纯文本会话');await this.images(session.id).hydrate([...history,{role:'user',text:prompt,images}]);}
         const runKey = this.key, redactRun = (text: string) => this.mcp.redact(runKey ? text.split(runKey).join('[REDACTED]') : text);
         const log=this.log(session.id), credentialLength=Math.max(runKey.length,this.mcp.redactionLength);
         const publish=(event:RunEvent)=>{
@@ -231,8 +242,8 @@ export class Runtime {
         // Children intentionally omit global MCP installation/activation management.
         if(family) { family.setChildTools(guarded); this.families.set(session.id,family); }
         const available=[...guarded,...(runSkills?.tools??[]),...this.mcpSetup.tools(),...(family?.tools()??[])];
-        const agent = new Agent(provider, () => available, log, publish, session.id, redactRun, credentialLength,
-          command.type==='files.write'?undefined:messages=>conversation.save(messages,redactRun),{skillIds:selectedSkills,initialize:runSkills?.initialize,start:(id,signal)=>family?.start(id,signal),collectBeforeCompletion:signal=>family?.collectBeforeCompletion(signal)??Promise.resolve(undefined),close:()=>family?.close()??Promise.resolve()});
+        const agent = new Agent(this.images(session.id).provider(asModelProvider(provider),this.imageSupport()), () => available, log, publish, session.id, redactRun, credentialLength,
+          command.type==='files.write'?undefined:messages=>conversation.save(messages,redactRun),{images,skillIds:selectedSkills,initialize:runSkills?.initialize,start:(id,signal)=>family?.start(id,signal),collectBeforeCompletion:signal=>family?.collectBeforeCompletion(signal)??Promise.resolve(undefined),close:()=>family?.close()??Promise.resolve()});
         this.agents.set(session.id, agent);
         // No shared await gap after claiming busy: all commands for this session stay isolated.
         const task = agent.run(prompt, maxSteps, history).catch(() => this.publish({ type: 'disconnected', message: '日志写入失败，请检查数据目录；任务已停止。' })).finally(async () => {

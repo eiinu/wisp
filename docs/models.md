@@ -33,3 +33,7 @@ thinking 模式拒绝 required/具名 tool_choice；不发送 parallel_tool_call
 离线夹具覆盖字节切分、结束帧用量、多工具交错、错误/终止分类、超时/取消/提前 EOF、参数拒绝、两轮以上推理续传、重启、私有数据和退避不重复副作用。真实 loopback HTTP 还验证取消连接，以及 Runtime → DeepSeek 适配 → 审批 → 临时目录写入 → Host 重启续传。没有真实 DeepSeek 密钥或付费请求；GUI 改动仅做类型/构建检查，不能声称实机 API 或视觉验收。
 
 2026-10-30 核对官方文档：[Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)、[模型发现](https://api-docs.deepseek.com/api/list-models/)、[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)、[错误码](https://api-docs.deepseek.com/quick_start/error_codes/)、[缓存](https://api-docs.deepseek.com/guides/kv_cache/)、[限流与 keepalive](https://api-docs.deepseek.com/quick_start/rate_limit/)。工具调用指南页面抓取超时，工具消息结构依据可读取的 Chat Completions 与思考模式规范核对。
+
+## 图片输入
+
+DeepSeek 视觉模型可接收本地图片，具体模型判断、产品限制与保存边界见[图片对话](./chat-images.md)。兼容适配器仍仅提供文字输入，不能静默忽略图片。

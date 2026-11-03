@@ -32,7 +32,7 @@ async function inspect(directory) {
 }
 await inspect(root);
 const require = createRequire(join(root, 'package.json'));
-for (const specifier of ['@earendil-works/pi-ai', '@earendil-works/pi-ai/api/openai-completions.lazy', '@modelcontextprotocol/sdk/client/index.js', 'ajv/dist/2020.js', 'yaml', 'yauzl', 'ipaddr.js']) {
+for (const specifier of ['@earendil-works/pi-ai', '@earendil-works/pi-ai/api/openai-completions.lazy', '@modelcontextprotocol/sdk/client/index.js', 'ajv/dist/2020.js', 'yaml', 'yauzl', 'ipaddr.js', 'sharp']) {
   const resolved = execFileSync(executable, ['--input-type=module', '-e', `console.log(import.meta.resolve(${JSON.stringify(specifier)}))`], { cwd: root, env: childEnv, encoding: 'utf8' }).trim();
   const file = fileURLToPath(resolved); await access(file); assert(!relative(root, file).startsWith('..'), `Dependency escaped package: ${specifier}`);
 }
@@ -52,6 +52,13 @@ try {
   await ready;
   await request({ type: 'model.save', config: { provider: 'offline', model: 'offline-test', baseUrl: '' } });
   const { sessionId } = await request({ type: 'session.create', title: 'Package verification' });
+  // Real native decoder and bundled attachment store, never a user image.
+  const decoderCheck = `import sharp from 'sharp';process.stdout.write((await sharp({create:{width:2,height:2,channels:3,background:'blue'}}).png().toBuffer()).toString('base64'));`;
+  const imageData = execFileSync(executable, ['--input-type=module','-e',decoderCheck], {cwd:root,env:childEnv,encoding:'utf8'}).trim();
+  const imported = await request({type:'images.import',sessionId,name:'package-fixture.png',data:imageData});
+  assert.equal(imported.image.width,2);
+  const loadedImage=await request({type:'images.read',sessionId,id:imported.image.id});
+  assert(loadedImage.imageDataUrl.startsWith('data:image/png;base64,'));
   await request({ type: 'run.start', sessionId, prompt: 'package check', maxSteps: 2 });
   let completed = false;
   for (let attempt = 0; attempt < 100; attempt++) { const { snapshot } = await request({ type: 'snapshot' }); if (snapshot.events.some(e => e.type === 'completed')) { completed = true; break; } await new Promise(resolveDelay => setTimeout(resolveDelay, 50)); }

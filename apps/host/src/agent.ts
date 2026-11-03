@@ -7,6 +7,7 @@ export interface AgentLifecycle {
   parentRunId?: string;
   taskTitle?: string;
   skillIds?: string[];
+  images?: import('@wisp/core').ChatImage[];
   start?(runId: string, signal: AbortSignal): void;
   collectBeforeCompletion?(signal: AbortSignal): Promise<string | undefined>;
   initialize?(signal:AbortSignal, emit:(type:RunEvent['type'],data:RunEvent['data'])=>Promise<void>):Promise<string | undefined>;
@@ -53,6 +54,7 @@ export class Agent {
       if (data.source && typeof data.source === 'object' && safeData.source && typeof safeData.source === 'object') {
         (safeData.source as Record<string,unknown>).serviceId = (data.source as Record<string,unknown>).serviceId;
       }
+      if(type==='started'&&Array.isArray(data.images))safeData.images=data.images.map(image=>({...image,name:this.redact(image.name)}));
       if(type==='question_requested'||type==='question_resolved') {
         safeData.ticket=data.ticket;
         if(type==='question_requested') {
@@ -67,11 +69,11 @@ export class Agent {
       await this.log.append(event); this.publish(event);
     };
     const callIds = new Set<string>();
-    const messages: Message[] = [...history, { role: 'user', text: prompt }];
+    const messages: Message[] = [...history, { role: 'user', text: prompt, ...(this.lifecycle?.images?.length?{images:structuredClone(this.lifecycle.images)}:{}) }];
     try {
       const snapshot = snapshotTools(typeof this.tools === 'function' ? this.tools() : this.tools.values());
       const availableTools = snapshot.tools;
-      await emit('started', { prompt, maxSteps, ...(this.lifecycle?.skillIds?.length?{skillIds:this.lifecycle.skillIds}:{}) });
+      await emit('started', { prompt, maxSteps, ...(this.lifecycle?.images?.length?{images:this.lifecycle.images}:{}), ...(this.lifecycle?.skillIds?.length?{skillIds:this.lifecycle.skillIds}:{}) });
       const context=this.lifecycle?.initialize ? await abortable(this.lifecycle.initialize(signal,(type,data)=>{signal.throwIfAborted();return emit(type,data);}),signal) : undefined; signal.throwIfAborted();
       if(context)messages.splice(messages.length-1,0,{role:'user',text:context,transient:true});
       for (let step = 0; step < maxSteps; step++) {

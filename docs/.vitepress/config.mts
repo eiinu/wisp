@@ -16,6 +16,7 @@ export default defineConfig({
         { text: '本地项目', link: '/projects' },
         { text: '对话归档', link: '/session-archive' },
         { text: '模型接入', link: '/models' },
+        { text: '图片对话', link: '/chat-images' },
         { text: '助手设定', link: '/assistant-setting' },
         { text: '并行子任务', link: '/subagents' },
         { text: '工具与权限', link: '/chat-tools' },

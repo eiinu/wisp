@@ -1,3 +1,4 @@
+import {supportsImages} from '@wisp/core';
 import { withAssistantSetting } from './assistant-setting.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { ModelConfig, ModelEvent, ModelInfo, ModelProvider, ModelRequest, ModelUsage, PrivateContinuation, ToolCall } from '@wisp/core';
@@ -41,7 +42,7 @@ async function limitedText(response: Response, limit: number): Promise<string> {
   const bytes = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; } return new TextDecoder().decode(bytes);
 }
 export interface DeepSeekTransport { fetch?: typeof fetch; timeoutMs?: number; retries?: number; retryDelayMs?: number }
-export function deepseekProvider(config: ModelConfig, apiKey: string, transport: DeepSeekTransport = {}, assistantSetting = ''): ModelProvider {
+export function deepseekProvider(config: ModelConfig, apiKey: string, transport: DeepSeekTransport = {}, assistantSetting = '', imageInputSupported = supportsImages(config)): ModelProvider {
   const systemPrompt = withAssistantSetting(system, assistantSetting);
   const endpoint = config.baseUrl.replace(/\/+$/, ''), requestFetch = transport.fetch ?? fetch;
   const origin: Omit<PrivateContinuation, 'reasoning'> = { provider: 'deepseek', protocol: 'chat-completions', model: config.model, endpoint };
@@ -55,8 +56,9 @@ export function deepseekProvider(config: ModelConfig, apiKey: string, transport:
       ...(request.responseFormat ? { response_format: { type: request.responseFormat } } : {}),
       ...(request.tools.length ? { tools: request.tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.inputSchema } })) } : {}),
       messages: [{ role: 'system', content: systemPrompt }, ...request.messages.map(message => {
+        if(message.images?.length && (message.role!=='user'||!imageInputSupported))throw new ProtocolError('image_input_not_supported');
         if (message.role === 'tool') return { role: 'tool', tool_call_id: message.callId, content: message.text };
-        if (message.role === 'user') return { role: 'user', content: message.text };
+        if (message.role === 'user') return { role: 'user', content: message.images?.length ? [...(message.text?[{type:'text',text:message.text}]:[]),...message.images.map(image=>{if(!image.dataUrl?.startsWith(`data:${image.mime};base64,`))throw new ProtocolError('image_data_missing');return {type:'image_url',image_url:{url:image.dataUrl}};})] : message.text };
         const p = message.continuation;
         const matching = p && p.provider === origin.provider && p.protocol === origin.protocol && p.model === origin.model && p.endpoint === origin.endpoint;
         if (request.tools.length && thinking === 'enabled' && !matching) throw new ProtocolError('incompatible_history_start_new_session');
@@ -89,6 +91,7 @@ export function deepseekProvider(config: ModelConfig, apiKey: string, transport:
       const deadline = AbortSignal.timeout(transport.timeoutMs ?? 660000), combined = AbortSignal.any([signal, deadline]);
       try {
         const payload = JSON.stringify(body(request));
+        if(Buffer.byteLength(payload)>48*1024*1024)throw new ProtocolError('request_body_exceeds_48_mib_start_new_session');
         for (let attempt = 0; ; attempt++) {
           try {
             const response = await requestFetch(`${endpoint}/chat/completions`, { method: 'POST', headers, body: payload, signal: combined, redirect: 'error' });

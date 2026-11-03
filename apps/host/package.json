@@ -10,9 +10,10 @@
     "ajv": "8.17.1",
     "ipaddr.js": "2.3.0",
     "yaml": "2.8.3",
-    "yauzl": "3.2.0"
+    "yauzl": "3.2.0",
+    "sharp": "0.35.5"
   },
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/* --external:@modelcontextprotocol/sdk/* --external:yaml --external:yauzl --external:ipaddr.js --outfile=dist/main.js"
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/* --external:@modelcontextprotocol/sdk/* --external:yaml --external:yauzl --external:ipaddr.js --external:sharp --outfile=dist/main.js"
   }
 }
