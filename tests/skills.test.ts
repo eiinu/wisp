@@ -1,12 +1,12 @@
 import {afterEach,it,expect} from 'vitest';
-import {mkdtemp,mkdir,writeFile,readFile,rm,symlink,link} from 'node:fs/promises';
+import {realpath,mkdtemp,mkdir,writeFile,readFile,rm,symlink,link} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {SkillRegistry,parseSkill} from '../apps/host/src/skills.js';
 const clean:string[]=[];
 afterEach(async()=>{for(const p of clean.splice(0))await rm(p,{recursive:true,force:true});});
 const document=(body='BODY_ONE')=>`---\nname: review-notes\ndescription: Review useful notes\nallowed-tools: files_write\ncompatibility: Needs a human\n---\n${body}`;
-async function setup(){const root=await mkdtemp(join(tmpdir(),'wisp-skills-'));clean.push(root);const dir=join(root,'private'),skill=join(root,'review-notes');await mkdir(dir);await mkdir(skill);await mkdir(join(skill,'references'));await writeFile(join(skill,'SKILL.md'),document());await writeFile(join(skill,'references/note.txt'),'REFERENCE_ONE');const registry=new SkillRegistry(dir);await registry.init();return {root,dir,skill,registry};}
+async function setup(){const root=await realpath(await mkdtemp(join(tmpdir(),'wisp-skills-')));clean.push(root);const dir=join(root,'private'),skill=join(root,'review-notes');await mkdir(dir);await mkdir(skill);await mkdir(join(skill,'references'));await writeFile(join(skill,'SKILL.md'),document());await writeFile(join(skill,'references/note.txt'),'REFERENCE_ONE');const registry=new SkillRegistry(dir);await registry.init();return {root,dir,skill,registry};}
 const signal=()=>new AbortController().signal;
 it('parses format, folded YAML and optional metadata; rejects duplicate keys, tags, aliases and invalid names',()=>{
  expect(parseSkill('---\nname: review-notes\ndescription: >\n  Multi line\n  description\nmetadata:\n  author: a\n---\nBody','review-notes').description).toContain('Multi line description');
