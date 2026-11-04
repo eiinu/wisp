@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rename, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rename, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -7,7 +7,8 @@ import { Runtime } from '../apps/host/src/runtime.js';
 const cleanup: (()=>Promise<unknown>)[]=[];
 afterEach(async()=>{for(const f of cleanup.splice(0).reverse())await f();});
 async function setup(){
- const root=await mkdtemp(join(tmpdir(),'wisp-projects-'));cleanup.push(()=>rm(root,{recursive:true,force:true}));
+ // macOS tmpdir may use /var, while Host scopes use its canonical /private/var path.
+ const root=await realpath(await mkdtemp(join(tmpdir(),'wisp-projects-')));cleanup.push(()=>rm(root,{recursive:true,force:true}));
  const directory=join(root,'private'),a=join(root,'A'),b=join(root,'B');await mkdir(a);await mkdir(b);
  const runtime=new Runtime(directory);await runtime.init();cleanup.push(()=>runtime.shutdown());
  await writeFile(join(a,'same.txt'),'A');await writeFile(join(b,'same.txt'),'B');

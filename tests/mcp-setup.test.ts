@@ -10,7 +10,8 @@ const signal=()=>new AbortController().signal;
 const plan={name:'Fixture',package:'@fixture/server',version:'1.2.3',bin:'fixture',args:[]};
 const lock=()=>({lockfileVersion:3,packages:{'':{},'node_modules/@fixture/server':{version:'1.2.3',resolved:'https://registry.npmjs.org/@fixture/server/-/server-1.2.3.tgz',integrity:'sha512-ZmFrZQ=='}}});
 async function setup(runner?:SetupRunner){
- const dir=await mkdtemp(join(tmpdir(),'wisp-setup-'));cleanup.push(()=>rm(dir,{recursive:true,force:true}));const mcp=new LocalMcp(dir,()=>{});await mcp.init();cleanup.push(()=>mcp.shutdown());
+ // Install safety checks require canonical roots, including through macOS /var aliases.
+ const dir=await realpath(await mkdtemp(join(tmpdir(),'wisp-setup-')));cleanup.push(()=>rm(dir,{recursive:true,force:true}));const mcp=new LocalMcp(dir,()=>{});await mcp.init();cleanup.push(()=>mcp.shutdown());
  const calls:string[][]=[];
  const fake:SetupRunner=runner??(async(_cmd,args,cwd,signal)=>{signal.throwIfAborted();calls.push(args);if(args[0]==='--version')return '12.0.0';if(args[0]==='install')await writeFile(join(cwd,'package-lock.json'),JSON.stringify(lock()));if(args[0]==='ci'){
   const root=join(cwd,'node_modules/@fixture/server');await mkdir(root,{recursive:true});await writeFile(join(root,'package.json'),JSON.stringify({name:plan.package,version:plan.version,bin:{fixture:'index.mjs'}}));await writeFile(join(root,'index.mjs'),await readFile(resolve('scripts/fixtures/mcp-stdio.mjs')));

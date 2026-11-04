@@ -1,5 +1,5 @@
 import {it,expect,vi} from 'vitest';
-import {mkdtemp,mkdir,writeFile,readFile,rm,readdir,lstat} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,rm,readdir,realpath,lstat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {WorkspaceFiles} from '../apps/host/src/files.js';
@@ -8,7 +8,8 @@ vi.mock('node:fs/promises',async importOriginal=>{
  return {...actual,lstat:vi.fn(actual.lstat)};
 });
 it('rejects cross-device empty directories and nested mounts before creating a destination',async()=>{
- const root=await mkdtemp(join(tmpdir(),'wisp-move-device-'));try{
+ // Match the canonical paths used by WorkspaceFiles when mocking device IDs.
+ const root=await realpath(await mkdtemp(join(tmpdir(),'wisp-move-device-')));try{
  const work=join(root,'work'),privateDir=join(root,'private');await mkdir(work);await mkdir(privateDir);await mkdir(join(work,'folder'));await mkdir(join(work,'destination'));
  const files=await WorkspaceFiles.grant(work,privateDir),signal=new AbortController().signal,tool=files.tools().find(t=>t.name==='files_move')!;
  const actual=await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');

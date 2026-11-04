@@ -9,7 +9,12 @@ const config = { provider: 'deepseek', model: 'deepseek-flash', baseUrl: 'https:
 function fakeCrypto(): SystemCrypto {
   // Fake OS service for tests only; production exclusively uses Electron safeStorage.
   const key = randomBytes(32);
-  return { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret', encryptString(text) { const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', key, iv), data = Buffer.concat([c.update(text, 'utf8'), c.final()]); return Buffer.concat([iv, c.getAuthTag(), data]); }, decryptString(data) { const d = createDecipheriv('aes-256-gcm', key, data.subarray(0, 12)); d.setAuthTag(data.subarray(12, 28)); return Buffer.concat([d.update(data.subarray(28)), d.final()]).toString(); } };
+  const crypto: SystemCrypto = { isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret', encryptString(text) { const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', key, iv), data = Buffer.concat([c.update(text, 'utf8'), c.final()]); return Buffer.concat([iv, c.getAuthTag(), data]); }, decryptString(data) { const d = createDecipheriv('aes-256-gcm', key, data.subarray(0, 12)); d.setAuthTag(data.subarray(12, 28)); return Buffer.concat([d.update(data.subarray(28)), d.final()]).toString(); } };
+  // MCP operations select the actual platform: model both safeStorage interfaces.
+  crypto.isAsyncEncryptionAvailable = async () => crypto.isEncryptionAvailable();
+  crypto.encryptStringAsync = async text => crypto.encryptString(text);
+  crypto.decryptStringAsync = async bytes => ({ result: crypto.decryptString(bytes), shouldReEncrypt: false });
+  return crypto;
 }
 it('does not access macOS Keychain for availability or an empty profile, and uses async crypto for real reads/writes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wisp-mac-vault-')), crypto = fakeCrypto();
