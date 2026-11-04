@@ -9,7 +9,8 @@ export default defineConfig({
     nav: [
       { text: '使用与能力', link: '/projects' },
       { text: '开发文档', link: '/development' },
-      { text: '打包与下载', link: '/packaging' }
+      { text: '打包与下载', link: '/packaging' },
+      { text: '更新日志', link: '/changelog' }
     ],
     sidebar: [
       { text: '使用与能力', items: [
@@ -29,6 +30,8 @@ export default defineConfig({
       ] },
       { text: '开发与维护', items: [
         { text: '开发与运行', link: '/development' },
+        { text: '版本发布', link: '/releasing' },
+        { text: '更新日志', link: '/changelog' },
         { text: '打包与下载', link: '/packaging' },
         { text: '开发模拟验证', link: '/development-validation' },
         { text: '文档站与部署', link: '/documentation' }

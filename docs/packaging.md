@@ -7,11 +7,11 @@
 3. 选择要构建的分支，点击 **Run workflow**。工作流按触发时的具体 commit SHA checkout，不追随构建期间移动的分支。
 4. 成功后打开该运行的 **Artifacts**，下载 `Wisp-macos-arm64-YYYYMMDDHHmm`，解压后获取唯一的 DMG 安装包。GitHub Actions 下载时仍会将 artifact 包装成 ZIP；这不是另一份应用 ZIP 安装产物。
 
-工作流只响应 `workflow_dispatch`；push、PR、tag 均不会自动构建。它生成 Actions 下载产物，**不创建 GitHub Release、不创建 tag，也不发布到其他服务**。Artifact 保留 14 天；手动运行可能消耗 GitHub 账户的 Actions 配额。
+手动入口响应 `workflow_dispatch`，生成 Actions 下载产物，不创建 tag 或 Release。同一打包流程也供版本 tag 触发的 [Release 草稿工作流](releasing.md) 复用；普通分支 push 和 PR 不触发打包。Artifact 保留 14 天；手动运行可能消耗 GitHub 账户的 Actions 配额。
 
 安装产物只有 `Wisp-macos-arm64-YYYYMMDDHHmm.dmg`，例如 `Wisp-macos-arm64-202610311146.dmg`。时间取实际检出提交的 **committer timestamp**，固定转换为 **Asia/Shanghai（UTC+08）**，精确到分钟；不是作者时间、构建开始时间或 runner 本地时间。同一提交重跑文件名一致，不同提交在同一分钟可能同名，可通过各自运行摘要中的完整 SHA 区分。
 
-应用内部版本仍取根 `package.json` 的 `version`，当前为 `0.1.0`。完整源码 SHA、提交时间、版本、签名状态和 DMG SHA-256 写入运行页面的 Job summary，不作为独立附件上传。Artifact 中只包含 DMG。
+手动构建的应用内部版本取根 `package.json` 的 `version`，当前为 `0.1.0`。完整源码 SHA、提交时间、版本、签名状态和 DMG SHA-256 写入运行页面的 Job summary，不作为独立附件上传。Artifact 中只包含 DMG。
 
 DMG 仅支持 Apple Silicon arm64，不是 Intel 或 universal 包。当前使用默认 Electron 图标，未配置不存在的自定义资源。
 

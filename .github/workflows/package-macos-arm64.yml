@@ -2,6 +2,14 @@ name: Build macOS arm64
 run-name: macOS arm64 · ${{ github.ref_name }}
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+    outputs:
+      artifact_name:
+        value: ${{ jobs.package.outputs.artifact_name }}
 permissions:
   contents: read
 concurrency:
@@ -9,9 +17,12 @@ concurrency:
   cancel-in-progress: false
 jobs:
   package:
+    outputs:
+      artifact_name: ${{ steps.artifact.outputs.name }}
     runs-on: macos-15
     timeout-minutes: 45
     env:
+      RELEASE_TAG: ${{ inputs.release_tag || '' }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
@@ -19,9 +30,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.19.0'
+      - name: Validate release identity before installing dependencies
+        if: inputs.release_tag != ''
+        run: node scripts/release-check.mjs
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: '11.25.0'
@@ -34,6 +49,7 @@ jobs:
         run: |
           pnpm typecheck
           pnpm test
+          pnpm docs:build
       - name: Build DMG (ad-hoc signed, not notarized)
         run: pnpm package:mac
       - name: Verify packaged Host and MCP with bundled Electron
@@ -41,10 +57,26 @@ jobs:
       - name: Record build identity and checksum in summary
         id: package
         run: node scripts/package-manifest.mjs
+      - name: Prepare versioned release bundle
+        if: inputs.release_tag != ''
+        run: node scripts/release-bundle.mjs
+      - name: Select artifact
+        id: artifact
+        env:
+          MANUAL_NAME: ${{ steps.package.outputs.artifact_name }}
+          MANUAL_PATH: ${{ steps.package.outputs.dmg_path }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then
+            echo "name=release-$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "path=release/draft/" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=$MANUAL_NAME" >> "$GITHUB_OUTPUT"
+            echo "path=$MANUAL_PATH" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ${{ steps.package.outputs.artifact_name }}
-          path: ${{ steps.package.outputs.dmg_path }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

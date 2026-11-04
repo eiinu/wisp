@@ -21,7 +21,8 @@
     "package:verify": "node scripts/verify-package.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "version:sync": "node scripts/release-check.mjs --sync"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

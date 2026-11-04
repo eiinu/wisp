@@ -21,7 +21,7 @@ Wisp 是运行在自己电脑上的个人 Agent 工作台。通过对话调用�
 
 ## 支持范围
 
-生产目标为 Electron 桌面端，当前提供 macOS Apple Silicon（arm64）DMG 构建。安装包目前未签名、未公证。
+生产目标为 Electron 桌面端，当前提供 macOS Apple Silicon（arm64）DMG 构建。应用目前采用 ad-hoc 签名、无 Developer ID、未公证。
 
 纯 Web 仅用于 UI 展示和截图验证，不是生产版本，不要求功能与桌面端对等。明确标注的界面样例不能代替真实 Host/Electron 功能验收。
 
@@ -32,3 +32,5 @@ Wisp 是运行在自己电脑上的个人 Agent 工作台。通过对话调用�
 ## 文档
 
 [文档首页](docs/index.md) · [文档站与部署](docs/documentation.md) · [开发与运行](docs/development.md) · [打包与下载](docs/packaging.md) · [工具与权限](docs/chat-tools.md) · [问答组件](docs/questionnaire.md) · [模型接入](docs/models.md) · [本地 MCP](docs/local-mcp.md) · [本地技能](docs/skills.md) · [技能安装与执行](docs/skill-installation.md)
+
+版本与重要能力变化见 [更新日志](CHANGELOG.md)；维护者发布流程见 [版本发布](docs/releasing.md)。
