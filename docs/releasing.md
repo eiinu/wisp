@@ -1,6 +1,6 @@
 # 版本与 Release 草稿
 
-根 `package.json` 是版本来源，当前为 `0.1.0`。根 `CHANGELOG.md` 是唯一更新日志；[文档站更新日志](changelog.md) 直接引用，不复制内容。首次版本仍标为“待发布”，不把早期提交日期补写成发布时间。
+根 `package.json` 是版本来源，当前为 `0.1.1`。根 `CHANGELOG.md` 是唯一更新日志；[文档站更新日志](changelog.md) 直接引用，不复制内容。首次版本仍标为“待发布”，不把早期提交日期补写成发布时间。
 
 ## 准备版本
 
@@ -10,8 +10,8 @@
 
 ```sh
 git fetch origin
-git tag -a v0.1.0 <已验收并合入main的完整SHA> -m 'Wisp 0.1.0 draft candidate'
-git push origin refs/tags/v0.1.0
+git tag -a v0.1.1 <已验收并合入main的完整SHA> -m 'Wisp 0.1.1 draft candidate'
+git push origin refs/tags/v0.1.1
 ```
 
 不要移动或强推既有 tag。建议为 `main` 和 `v*` 设置规则集，只允许维护者创建 tag，禁止删除/更新。工作流的祖先检查是防误操作校验，不能替代仓库权限控制（有权改工作流的人也能改校验）。
@@ -22,7 +22,7 @@ git push origin refs/tags/v0.1.0
 
 - 在安装依赖前校验 tag 等于根版本、全部工作区版本一致、tag/HEAD/触发 SHA 相等、提交属于 `origin/main` 历史且存在日志条目。
 - 复用 [手动 macOS arm64 打包](packaging.md) 的锁文件安装、typecheck、全量测试、构建与包内 Host/MCP 验证；另构建文档。检查包内应用版本。
-- 成功后才准备 `Wisp-0.1.0-macos-arm64.dmg`、`SHA256SUMS` 和 `build-info.json`，后者记录完整源码 SHA、版本、架构、签名状态与 DMG 哈希。手动打包仍保留时间戳命名和单 DMG artifact。
+- 成功后才准备 `Wisp-0.1.1-macos-arm64.dmg`、`SHA256SUMS` 和 `build-info.json`，后者记录完整源码 SHA、版本、架构、签名状态与 DMG 哈希。手动打包仍保留时间戳命名和单 DMG artifact。
 - 上传 job 重新 checkout，并通过 GitHub API 再次确认远端 tag 未删除/移动、提交仍属于 main，校验附件身份，才调用 GitHub API 创建 **draft: true** 的 Release；不依赖 `release` 事件再次触发流程。只有该 job 拥有 `contents: write`，不安装项目依赖、不运行项目构建。全部外部 Actions 固定完整提交 SHA。
 - 当前不自动公开、不自动生成/推送 tag、不启用 Developer ID 或公证。草稿仅有相应仓库权限的人可见。
 

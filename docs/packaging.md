@@ -11,7 +11,7 @@
 
 安装产物只有 `Wisp-macos-arm64-YYYYMMDDHHmm.dmg`，例如 `Wisp-macos-arm64-202610311146.dmg`。时间取实际检出提交的 **committer timestamp**，固定转换为 **Asia/Shanghai（UTC+08）**，精确到分钟；不是作者时间、构建开始时间或 runner 本地时间。同一提交重跑文件名一致，不同提交在同一分钟可能同名，可通过各自运行摘要中的完整 SHA 区分。
 
-手动构建的应用内部版本取根 `package.json` 的 `version`，当前为 `0.1.0`。完整源码 SHA、提交时间、版本、签名状态和 DMG SHA-256 写入运行页面的 Job summary，不作为独立附件上传。Artifact 中只包含 DMG。
+手动构建的应用内部版本取根 `package.json` 的 `version`，当前为 `0.1.1`。完整源码 SHA、提交时间、版本、签名状态和 DMG SHA-256 写入运行页面的 Job summary，不作为独立附件上传。Artifact 中只包含 DMG。
 
 DMG 仅支持 Apple Silicon arm64，不是 Intel 或 universal 包。当前使用默认 Electron 图标，未配置不存在的自定义资源。
 
