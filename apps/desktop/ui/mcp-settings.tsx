@@ -17,16 +17,16 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
  },[confirm]);
  const cancelConfirmation=()=>{restoreConfirmation.current=!!confirmation.current?.contains(document.activeElement);setConfirm(undefined);};
  useEffect(()=>{onDirty(!!draft);},[draft,onDirty]);
- const edit=(server?:McpServerInfo)=>{setId(server?.id);setDraft(server?{name:server.name,command:server.command,args:server.args,cwd:server.cwd}:{...blank});setArgs(JSON.stringify(server?.args??[],null,2));setVariables([]);setReplace(!server);setRemember(server?.envStorage!=='session');setError('');setStatus('');setConfirm(undefined);};
+ const edit=(server?:McpServerInfo)=>{setId(server?.id);setDraft(server?{name:server.name,command:server.command,args:server.args,cwd:server.cwd,transport:server.transport,url:server.url}:{...blank});setArgs(JSON.stringify(server?.args??[],null,2));setVariables([]);setReplace(!server);setRemember(server?.envStorage!=='session');setError('');setStatus('');setConfirm(undefined);};
  const reset=()=>{setDraft(null);setVariables([]);setError('');setTimeout(()=>add.current?.focus(),0);};
  const task=async(work:()=>Promise<void>)=>{if(lock.current)return;lock.current=true;setPending(true);setError('');setStatus('');try{await work();}catch(e){setError(e instanceof Error?e.message:'MCP 操作失败');}finally{lock.current=false;setPending(false);}};
  const selected=servers.find(server=>server.id===id);
  const save=async()=>{if(!draft||!connected)return;let parsed:unknown;try{parsed=JSON.parse(args);}catch{throw new Error('参数须为 JSON 字符串数组，例如 ["/path/server.js"]');}if(!Array.isArray(parsed)||!parsed.every(value=>typeof value==='string'))throw new Error('每个参数必须是字符串');
   const names=variables.map(row=>row.name);if(new Set(names).size!==names.length)throw new Error('环境变量名称不能重复');
-  try{await request({type:'mcp.save',id,config:{...draft,args:parsed,cwd:draft.cwd?.trim()||undefined},...(replace?{env:Object.fromEntries(variables.map(row=>[row.name,row.value]))}:{}),rememberEnv:remember});reset();setStatus('配置已保存，服务保持禁用。确认信任后再激活。');}finally{setVariables(current=>current.map(row=>({...row,value:''})));}
+  try{await request({type:'mcp.save',id,config:{...draft,args:parsed,cwd:draft.cwd?.trim()||undefined},...(draft.transport==='streamable-http'?{env:{}}:replace?{env:Object.fromEntries(variables.map(row=>[row.name,row.value]))}:{}),rememberEnv:draft.transport==='streamable-http'?false:remember});reset();setStatus('配置已保存，服务保持禁用。确认信任后再激活。');}finally{setVariables(current=>current.map(row=>({...row,value:''})));}
  };
  return <section className="mcp-settings" aria-label="本地 MCP 管理">
-  <p className="settings-note">添加你已安装的 stdio MCP 服务。激活会在本机运行指定命令，拥有你的系统权限，<strong>不受项目目录授权限制</strong>。仅添加你信任的服务；工具调用仍逐次审批。Wisp 不内置 MCP 服务。</p>
+  <p className="settings-note">添加 stdio 或 Streamable HTTP MCP 服务。stdio 激活会在本机运行指定命令，拥有你的系统权限，<strong>不受项目目录授权限制</strong>。仅添加你信任的服务；工具调用仍逐次审批。Wisp 不内置 MCP 服务。</p>
   <p className="settings-note">也可以在对话中提供 MCP 安装说明，让助手整理方案。你批准后，Wisp 可注册已有服务或安装指定版本的公共 npm 包，再单独确认激活。密钥请仅在下方编辑服务的环境变量中填写，不要发到聊天。</p>
   {!connected&&<p role="status">本机服务未连接，连接后可管理 MCP。</p>}
   <div className="mcp-heading"><h3>服务</h3><button ref={add} disabled={!connected||pending||!!draft} onClick={()=>edit()}><WorkspaceIcon name="plus"/>添加本地 MCP</button></div>
@@ -42,7 +42,7 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
    </div>
    {!!server.tools.length&&<details><summary>工具列表 · {server.tools.length}</summary><ul>{server.tools.map(tool=><li key={tool.name}><strong>{tool.remoteName}</strong><p>{tool.description}</p><code>{tool.name}</code></li>)}</ul></details>}
    {confirm?.id===server.id&&<div ref={confirmation} className="mcp-confirm" onKeyDown={event=>{if(event.key==='Escape'&&!pending){event.preventDefault();event.stopPropagation();cancelConfirmation();}}} role="region" aria-label={confirm.action==='activate'?'确认运行本地服务':'确认删除配置'}>
-    {confirm.action==='activate'?<><p>确认信任并运行以下本机命令？这是进程启动授权，不是项目目录沙箱。</p><pre>{JSON.stringify({command:server.command,args:server.args,cwd:server.cwd??'用户主目录'},null,2)}</pre></>:<p>删除「{server.name}」配置和保存的环境变量，并停止服务。不会删除服务程序或你的项目文件。</p>}
+    {confirm.action==='activate'?<><p>{server.transport==='streamable-http'?'确认连接以下 HTTP MCP 服务？该服务将接收已批准的工具参数。':'确认信任并运行以下本机命令？这是进程启动授权，不是项目目录沙箱。'}</p><pre>{JSON.stringify(server.transport==='streamable-http'?{transport:server.transport,url:server.url}:{command:server.command,args:server.args,cwd:server.cwd??'用户主目录'},null,2)}</pre></>:<p>删除「{server.name}」配置和保存的环境变量，并停止服务。不会删除服务程序或你的项目文件。</p>}
     <div className="mcp-actions"><button autoFocus disabled={pending} onClick={cancelConfirmation}>取消</button><button disabled={pending||!connected} onClick={()=>void task(async()=>{const action=confirm.action;setConfirm(undefined);await request(action==='activate'?{type:'mcp.activate',id:server.id,confirmed:true}:{type:'mcp.delete',id:server.id});setStatus(action==='activate'?'连接操作已结束，请查看服务状态':'配置已删除');})}>{confirm.action==='activate'?'信任并激活':'确认删除'}</button></div>
    </div>}
   </article>)}</div>
@@ -50,11 +50,13 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
    <h3 ref={heading} tabIndex={-1}>{id?'编辑服务':'添加服务'}</h3><fieldset disabled={pending||!connected}>
     <div className="settings-group">
      <label className="settings-row"><span>名称</span><input autoFocus required maxLength={80} value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})}/></label>
-     <label className="settings-row"><span>可执行文件<small>程序名或绝对路径，不是整段 shell 命令</small></span><input required maxLength={4096} placeholder="例如 node" value={draft.command} onChange={e=>setDraft({...draft,command:e.target.value})}/></label>
+     <label className="settings-row"><span>传输方式</span><select aria-label="传输方式" value={draft.transport??'stdio'} onChange={e=>{const transport=e.target.value as 'stdio'|'streamable-http';setDraft({...draft,transport,command:'',args:[],cwd:undefined,url:transport==='streamable-http'?'http://127.0.0.1:3030/mcp':undefined});setArgs('[]');setVariables([]);setReplace(true);}}><option value="stdio">stdio（本机命令）</option><option value="streamable-http">Streamable HTTP</option></select></label>
+     {draft.transport==='streamable-http'?<label className="settings-row"><span>MCP 地址<small>HTTPS 或本机 HTTP；不支持认证、凭据或 URL 查询参数</small></span><input aria-label="MCP 地址" required type="url" maxLength={4096} value={draft.url??''} onChange={e=>setDraft({...draft,url:e.target.value})}/></label>:<>     <label className="settings-row"><span>可执行文件<small>程序名或绝对路径，不是整段 shell 命令</small></span><input required maxLength={4096} placeholder="例如 node" value={draft.command} onChange={e=>setDraft({...draft,command:e.target.value})}/></label>
      <label className="mcp-field">参数（JSON 数组）<textarea rows={3} value={args} onChange={e=>setArgs(e.target.value)} spellCheck={false}/></label>
-     <label className="settings-row"><span>工作目录<small>可选，绝对路径；留空使用用户主目录</small></span><input maxLength={4096} value={draft.cwd??''} onChange={e=>setDraft({...draft,cwd:e.target.value})}/></label>
+     <label className="settings-row"><span>工作目录<small>可选，绝对路径；留空使用用户主目录</small></span><input maxLength={4096} value={draft.cwd??''} onChange={e=>setDraft({...draft,cwd:e.target.value})}/></label></>}
+
     </div>
-    <h3>环境变量</h3><p className="settings-note">敏感值仅通过此处输入，不要放在命令或参数中。已保存的值不回显；保存后清空本次输入。</p>
+    {draft.transport!=='streamable-http'&&<><h3>环境变量</h3><p className="settings-note">敏感值仅通过此处输入，不要放在命令或参数中。已保存的值不回显；保存后清空本次输入。</p>
     {id&&<label className="mcp-check"><input type="checkbox" checked={replace} onChange={e=>setReplace(e.target.checked)}/>替换全部环境变量（空列表表示清除；不勾选则保留）</label>}
     {!replace&&selected&&<p className="settings-note">保留变量：{selected.envNames.join('、')||'无'}。更换命令或参数时，须重新填写或清除变量。</p>}
     {replace&&<><div className="mcp-variables">{variables.map((row,index)=><div className="mcp-variable" key={index}>
@@ -63,6 +65,7 @@ export function McpSettings({servers,connected,request,onDirty}:{servers:McpServ
       <button type="button" aria-label={`移除变量 ${index+1}`} onClick={()=>setVariables(variables.filter((_,i)=>i!==index))}><WorkspaceIcon name="close"/></button>
     </div>)}</div><button type="button" disabled={variables.length>=64} onClick={()=>setVariables([...variables,{name:'',value:''}])}>添加环境变量</button>
     <label className="mcp-check"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>使用系统安全存储；取消勾选则仅本次会话保存</label><p className="settings-note">安全存储失败会报错，不会自动明文保存。服务配置保存在本机；重启不自动运行。</p></>}
+    </>}
    </fieldset>
    <div className="mcp-actions"><button type="button" disabled={pending} onClick={reset}>取消编辑</button><button className="primary" disabled={pending||!connected}>保存配置</button></div>
   </form>}

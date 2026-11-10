@@ -33,11 +33,20 @@ export type ModelConfig = z.infer<typeof modelConfigSchema>;
 const sid = z.string().uuid();
 export const previewTabSchema = z.object({ id:z.string().min(1).max(4096), kind:z.enum(['web','file','new','workspace','artifact']), title:z.string().max(300), active:z.boolean(), url:z.string().max(8192).optional(), path:z.string().max(4096).optional(), revision:z.number().int().nonnegative().optional() }).strict();
 export type PreviewTabMetadata = z.infer<typeof previewTabSchema>;
+export function mcpHttpUrl(value:string):string {
+  const url=new URL(value);
+  if(url.username||url.password||url.search||url.hash||!(url.protocol==='https:'||(url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname))))throw new Error('MCP HTTP 地址须为 HTTPS 或本机 HTTP，不能含凭据、查询参数或片段');
+  return url.href;
+}
 export const mcpConfigSchema = z.object({
-  name: z.string().trim().min(1).max(80), command: z.string().trim().min(1).max(4096).refine(v => !v.includes('\0')),
+  name: z.string().trim().min(1).max(80), command: z.string().trim().max(4096).refine(v => !v.includes('\0')),
   args: z.array(z.string().max(4096).refine(v => !v.includes('\0'))).max(64),
   cwd: z.string().trim().max(4096).optional(),
-}).strict();
+  transport:z.enum(['stdio','streamable-http']).optional(),url:z.string().max(4096).optional(),
+}).strict().refine(config=>{
+  if(config.transport!=='streamable-http')return !!config.command&&!config.url;
+  try{return !!config.url&&!!mcpHttpUrl(config.url)&&!config.command&&!config.args.length&&!config.cwd;}catch{return false;}
+},'MCP 传输配置无效：stdio 需要命令；Streamable HTTP 需要安全 URL，不能包含命令、参数或目录');
 export const mcpEnvSchema = z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/), z.string().max(8192).refine(v => !v.includes('\0'))).refine(v => Object.keys(v).length <= 64 && JSON.stringify(v).length <= 32768);
 export type McpConfig = z.infer<typeof mcpConfigSchema>;
 export interface McpServerInfo extends McpConfig {

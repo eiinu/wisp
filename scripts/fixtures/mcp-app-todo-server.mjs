@@ -1,0 +1,21 @@
+// Synthetic interoperability fixture. Never connects to or copies the user's Todo demo.
+import {createServer} from 'node:http';
+import {randomUUID} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const modules=process.env.WISP_TEST_SDK2;
+const {McpServer}=await import(pathToFileURL(join(modules,'@modelcontextprotocol/server/dist/index.mjs')).href);
+const {NodeStreamableHTTPServerTransport}=await import(pathToFileURL(join(modules,'@modelcontextprotocol/node/dist/index.mjs')).href);
+const {registerAppTool,registerAppResource,RESOURCE_MIME_TYPE}=await import(pathToFileURL(join(modules,'@modelcontextprotocol/ext-apps/dist/src/server/index.js')).href);
+const {z}=await import(pathToFileURL(join(modules,'zod/index.js')).href);
+const server=new McpServer({name:'Synthetic Todo SDK 2',version:'1'}),uri='ui://todo/index.html';
+const todos=[{id:'fixture-1',text:'Synthetic fixture task',done:false}],result=()=>({content:[{type:'text',text:`${todos.length} synthetic todos`}],structuredContent:{todos:structuredClone(todos)}});
+registerAppTool(server,'show_todos',{inputSchema:z.object({}),_meta:{ui:{resourceUri:uri}}},async()=>result());
+registerAppTool(server,'add_todo',{inputSchema:z.object({text:z.string().min(1)}),_meta:{ui:{visibility:['app']}}},async({text})=>{todos.push({id:randomUUID(),text,done:false});return result();});
+registerAppTool(server,'set_todo_done',{inputSchema:z.object({id:z.string(),done:z.boolean()}),_meta:{ui:{visibility:['app']}}},async({id,done})=>{const todo=todos.find(t=>t.id===id);if(!todo)throw new Error('Missing fixture todo');todo.done=done;return result();});
+registerAppResource(server,'Todo UI',uri,{mimeType:RESOURCE_MIME_TYPE},async()=>({contents:[{uri,mimeType:RESOURCE_MIME_TYPE,text:await readFile(process.env.WISP_TEST_TODO_HTML,'utf8')}]}));
+const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:()=>randomUUID()});await server.connect(transport);
+const http=createServer((req,res)=>{if(req.url!=='/mcp'){res.writeHead(404).end();return;}void transport.handleRequest(req,res).catch(()=>{if(!res.headersSent)res.writeHead(500);res.end();});});
+http.listen(0,'127.0.0.1',()=>process.stdout.write(`PORT ${(http.address()).port}\n`));
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{void server.close().finally(()=>{http.closeAllConnections();http.close(()=>process.exit(0));});});

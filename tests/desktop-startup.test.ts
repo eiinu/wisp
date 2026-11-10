@@ -5,10 +5,10 @@ const mocks = vi.hoisted(() => {
   const app = { whenReady: vi.fn(), getPath: vi.fn(() => '/tmp/wisp-startup-test'), on: vi.fn(), quit: vi.fn() };
   const host = { connected: true, on: vi.fn(), kill: vi.fn(), send: vi.fn() };
   const window = { webContents: { setWindowOpenHandler: vi.fn(), on: vi.fn(), send: vi.fn() }, loadURL: vi.fn(), isDestroyed: vi.fn(() => false) };
-  return { handle: vi.fn(), writeText: vi.fn(), app, host, window, fork: vi.fn(() => host), BrowserWindow: vi.fn(function () { return window; }), showErrorBox: vi.fn(),
+  return { appMessage:vi.fn(), removeListener:vi.fn(), handle: vi.fn(), writeText: vi.fn(), app, host, window, fork: vi.fn(() => host), BrowserWindow: vi.fn(function () { return window; }), showErrorBox: vi.fn(),
     deferReady() { app.whenReady.mockReturnValue(new Promise<void>(resolve => { ready = resolve; })); }, ready() { ready(); } };
 });
-vi.mock('electron', () => ({ app: mocks.app, BrowserWindow: mocks.BrowserWindow, ipcMain: { handle: mocks.handle }, clipboard: { writeText: mocks.writeText },
+vi.mock('electron', () => ({ app: mocks.app, BrowserWindow: mocks.BrowserWindow, ipcMain: { handle: mocks.handle, on:mocks.appMessage, removeListener:mocks.removeListener }, clipboard: { writeText: mocks.writeText },
   session: { defaultSession: { setPermissionRequestHandler: vi.fn() } },
   dialog: { showErrorBox: mocks.showErrorBox }, shell: {}, safeStorage: {} }));
 vi.mock('node:child_process', () => ({ fork: mocks.fork }));

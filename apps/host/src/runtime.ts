@@ -49,7 +49,7 @@ export class Runtime {
   private skillInstall: SkillInstall;
   private mcp: LocalMcp;
   private mcpSetup: McpSetup;
-  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}, install?:{http?:PublicHttp;runner?:ProcessRunner;binaries?:typeof detectInterpreters}) { this.store = new StateStore(resolve(directory)); this.skills=new SkillRegistry(this.store.directory,()=>this.publish({type:'changed'})); this.skillInstall=new SkillInstall(this.store.directory,this.skills,install?.http,install?.runner,install?.binaries); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
+  constructor(directory: string, mcpFactory?: McpTransportFactory, private vault?: CredentialVault, private development?: { baseUrl: string; key: string }, private desktop?: DesktopService, setup?: {runner?:SetupRunner;binaries?:()=>Promise<{node:string;npm:string}>}, install?:{http?:PublicHttp;runner?:ProcessRunner;binaries?:typeof detectInterpreters}) { this.store = new StateStore(resolve(directory)); this.skills=new SkillRegistry(this.store.directory,()=>this.publish({type:'changed'})); this.skillInstall=new SkillInstall(this.store.directory,this.skills,install?.http,install?.runner,install?.binaries); this.mcp = new LocalMcp(this.store.directory, () => this.publish({type: 'changed'}), desktop, mcpFactory,10000,id=>this.store.state.selectedId===id&&this.store.state.sessions.some(s=>s.id===id&&!s.archivedAt)); this.mcpSetup=new McpSetup(this.store.directory,this.mcp,setup?.runner,setup?.binaries); this.tabs=new PreviewTabs(notice=>this.publish(notice),()=>this.store.state.selectedId,this.desktop); this.tabActions=new TabActions(this.tabs,n=>this.publish(n),this.desktop); }
   async init() {
     await this.store.load(); await this.mcp.init(); await this.skills.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
@@ -121,6 +121,7 @@ export class Runtime {
       await this.store.save(); this.publish({ type: 'changed' }); return {};
     }
     if (command.type === 'session.create') {
+      await this.mcp.closeApps();
       if (command.projectId) { const project = this.project(command.projectId); await this.workspace({projectId: project.id} as SessionInfo); project.collapsed = false; }
       const now = new Date().toISOString(), session: SessionInfo = { ...(command.projectId ? { projectId: command.projectId } : {}), id: randomUUID(), title: command.title, createdAt: now, updatedAt: now };
       this.store.state.sessions.unshift(session); this.store.state.selectedId = session.id;
@@ -163,6 +164,7 @@ export class Runtime {
       } finally { this.keyChanging = false; this.publish({ type: 'changed' }); }
     }
     const session = this.session(command.sessionId);
+    if(command.type==='session.select'||command.type==='session.archive')await this.mcp.closeApps();
     if (command.type === 'session.archive' || command.type === 'session.restore') {
       this.idle(session.id);
       if (command.type === 'session.archive') {
@@ -236,7 +238,7 @@ export class Runtime {
           this.events.push(event);session.updatedAt=event.at;this.publish({type:'event',event});
         };
         // Capture permissions and provider configuration before any child can start.
-        const base=[...tools.values(),...this.mcp.tools(),...this.skillInstall.tools(undefined,skills)];
+        const base=[...tools.values(),...this.mcp.tools(session.id),...this.skillInstall.tools(undefined,skills)];
         const family=childProvider ? new Subagents(childProvider,base,log,publish,session.id,redactRun,credentialLength,skills?.hasSkills?skills:undefined) : undefined;
         const guarded=family?.guard(base)??base;
         // Children intentionally omit global MCP installation/activation management.
@@ -256,5 +258,6 @@ export class Runtime {
     }
     await this.store.save(); this.publish({ type: 'changed' }); return {};
   }
+  async receiveApp(id:string,message:unknown){await this.mcp.receiveApp(id,message);}
   async shutdown() { for (const agent of this.agents.values()) if (agent.activeRunId) agent.cancel(agent.activeRunId); this.key = ''; await this.skillInstall.shutdown(); await this.mcpSetup.shutdown(); await this.mcp.shutdown(); await Promise.allSettled([...this.tasks]); await this.store.save(); }
 }

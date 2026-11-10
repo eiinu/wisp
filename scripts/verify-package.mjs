@@ -13,7 +13,7 @@ const childEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1' };
 assert.equal(execFileSync(executable, ['-p', 'process.arch'], { env: childEnv, encoding: 'utf8' }).trim(), expectedArch);
 const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 assert.equal(metadata.main, 'apps/desktop/dist/main.js');
-for (const file of [metadata.main, 'apps/desktop/dist/preload.cjs', 'apps/desktop/ui-dist/index.html', 'apps/host/dist/main.js']) await access(join(root, file));
+for (const file of [metadata.main, 'apps/desktop/dist/preload.cjs', 'apps/desktop/dist/mcp-app-preload.cjs', 'apps/desktop/ui-dist/index.html', 'apps/host/dist/main.js']) await access(join(root, file));
 for (const excluded of ['scripts/fixtures', 'node_modules/@playwright/mcp', 'node_modules/playwright', 'apps/host/src', 'apps/desktop/web-preview-dist']) {
   await assert.rejects(access(join(root, excluded)), { code: 'ENOENT' }, `Test fixtures or bundled MCP leaked into package: ${excluded}`);
 }
