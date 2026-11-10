@@ -43,3 +43,15 @@ it('restores cancelled activation/deletion focus without stealing focus after na
  await click('激活 测试服务');element.hidden=true;await click('取消');expect(document.activeElement).not.toBe(find('激活 测试服务'));element.hidden=false;
  expect(request).not.toHaveBeenCalled();
 });
+
+it('configures a Streamable HTTP endpoint without command or secret fields and confirms the exact URL',async()=>{
+ const request=vi.fn(async()=>({}));await act(()=>root.render(<McpSettings servers={[]} connected request={request} onDirty={()=>{}}/>));await click('添加本地 MCP');
+ await text(element.querySelector('form input')!,'Todo fixture');
+ await act(()=>{const select=element.querySelector('select')!;select.value='streamable-http';select.dispatchEvent(new Event('change',{bubbles:true}));});
+ expect(element.querySelector('textarea')).toBeNull();expect(element.textContent).not.toContain('使用系统安全存储');
+ await text(element.querySelector('[aria-label="MCP 地址"]')!,'http://127.0.0.1:3030/mcp');
+ await act(()=>element.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+ expect(request).toHaveBeenCalledWith(expect.objectContaining({type:'mcp.save',config:expect.objectContaining({transport:'streamable-http',url:'http://127.0.0.1:3030/mcp',command:'',args:[]}),env:{},rememberEnv:false}));
+ const http={...server,name:'HTTP Todo',command:'',args:[],transport:'streamable-http' as const,url:'http://127.0.0.1:3030/mcp',envNames:[],envStorage:'none' as const};
+ await act(()=>root.render(<McpSettings servers={[http]} connected request={request} onDirty={()=>{}}/>));await click('激活 HTTP Todo');expect(element.textContent).toContain('http://127.0.0.1:3030/mcp');expect(element.textContent).toContain('确认连接以下 HTTP MCP');
+});

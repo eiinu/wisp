@@ -8,6 +8,7 @@ npmRebuild: false
 files:
   - apps/desktop/dist/main.js
   - apps/desktop/dist/preload.cjs
+  - apps/desktop/dist/mcp-app-preload.cjs
   - apps/desktop/ui-dist/**
   - apps/host/dist/main.js
   - package.json

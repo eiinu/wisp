@@ -20,6 +20,7 @@ if (web) {
 } else {
   runtime.subscribe(notice => { if (process.connected) process.send?.({ type: 'notice', notice }); });
   process.on('message', async input => {
+    if((input as any)?.type==='mcp-app-message'){await initialized;await runtime.receiveApp((input as any).appId,(input as any).message);return;}
     if ((input as { type?: string })?.type === 'credential-response' || (input as {type?:string})?.type === 'desktop-response') return;
     const envelope = input as { id?: string; request?: unknown };
     if (typeof envelope.id !== 'string') return;
