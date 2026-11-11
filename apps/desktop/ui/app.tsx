@@ -10,6 +10,7 @@ import { webBridge } from './bridge.js';
 import { copyText } from './clipboard.js';
 import { tabListDelivery } from './tab-list-delivery.js';
 import { previewDelivery } from './preview-delivery.js';
+import { applyEventBatch, batchEventNotices } from './event-batch.js';
 import { mergeHistory, indexSessions, historyTurns } from './history.js';
 import { ToolActivity, toolLabel } from './tool-activity.js';
 import { Markdown } from './markdown.js';
@@ -104,6 +105,7 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
     const deliverPreview = previewDelivery(() => live ? selectedRef.current : undefined, input=>bridge!.request(input), url=>openPreview({kind:'web',url}));
     const actions=tabActionDelivery(()=>live?selectedRef.current:undefined,input=>bridge!.request(input),()=>tabAction.current);
     const deliverTabs=tabListDelivery(()=>live?selectedRef.current:undefined,input=>bridge!.request(input),()=>tabMetadata.current());
+    const eventBatch = batchEventNotices(events => setSnapshot(previous => applyEventBatch(previous, events)));
     const unsubscribe = bridge.subscribe(notice => {
       if(notice.type==='preview.action'||notice.type==='preview.action.cancel')void actions.deliver(notice);
       if(notice.type==='preview.tabs') void deliverTabs(notice);
@@ -111,13 +113,10 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
       if (!live) return;
       if (notice.type === 'disconnected') { generation++; setConnected(false); setError(notice.message); }
       if (notice.type === 'changed') void refresh();
-      if (notice.type === 'event') {
-        const e = notice.event;
-        setSnapshot(s => ({ ...s, events: s.events.some(old => old.id === e.id) ? s.events : [...s.events, e], sessions: s.sessions.map(session => session.id !== e.sessionId ? session : { ...session, updatedAt: e.at, activeRunId: e.type === 'started' && !e.parentRunId ? e.runId : session.activeRunId }) }));
-      }
+      if (notice.type === 'event') eventBatch.push(notice.event);
     });
     void refresh();
-    return () => { live = false; generation++; actions.dispose(); unsubscribe(); };
+    return () => { live = false; generation++; eventBatch.dispose(); actions.dispose(); unsubscribe(); };
   }, [bridge, connectionAttempt]);
   useEffect(() => { followStream.current = true; setAwayFromBottom(false); bottom.current?.scrollIntoView({ block: 'end' }); }, [selected]);
   useEffect(() => { if (followStream.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [events.length]);

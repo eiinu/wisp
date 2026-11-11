@@ -124,3 +124,15 @@ it('previews UTF-8 txt and Markdown, empty files and BOM-tagged UTF-16 without s
   await writeFile(join(work, 'bad.txt'), Buffer.from([0xc3, 0x28])); await expect(files.read('bad.txt')).rejects.toThrow('无法解码');
   await writeFile(join(work, 'binary.txt'), Buffer.from([0, 1, 2])); expect((await files.read('binary.txt')).kind).toBe('unsupported');
 });
+it('recovers unfinished root and child runs once, preserving terminal runs and never invoking tools',async()=>{
+ const {directory,runtime,id}=await setup();await runtime.shutdown();
+ const {randomUUID}=await import('node:crypto');
+ const runIds=new Map(['finished','cancelled','failed','root','child'].map(name=>[name,randomUUID()]));
+ const events:RunEvent[]=[['finished','started'],['finished','completed'],['cancelled','started'],['cancelled','cancelled'],['failed','started'],['failed','failed'],['root','started'],['child','started']].map(([runId,type],i)=>({version:1,id:randomUUID(),runId:runIds.get(runId)!,sessionId:id,at:'2026-11-11T00:00:00Z',type:type as RunEvent['type'],data:{prompt:'fixture'},...(runId==='child'?{parentRunId:runIds.get('root'),taskTitle:'Child'}:{})}));
+ await mkdir(join(directory,'sessions'),{recursive:true});
+ await writeFile(join(directory,'sessions',`${id}.jsonl`),events.map(e=>JSON.stringify(e)).join('\n')+'\n');
+ const restarted=new Runtime(directory);await restarted.init();
+ const recovered=restarted.snapshot().events.filter(e=>!events.some(old=>old.id===e.id));
+ expect(recovered.map(e=>e.runId)).toEqual([runIds.get('root'),runIds.get('child')]);expect(recovered.every(e=>e.type==='failed')).toBe(true);expect(recovered[1]).toMatchObject({parentRunId:runIds.get('root'),taskTitle:'Child'});
+ await restarted.shutdown();const again=new Runtime(directory);await again.init();expect(again.snapshot().events).toHaveLength(events.length+2);await again.shutdown();
+});

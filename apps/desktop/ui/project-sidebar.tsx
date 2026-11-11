@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ProjectInfo, Request, Result, SessionInfo } from '@wisp/core';
+import { indexSessionList } from './session-index.js';
 import { WorkspaceIcon } from './workspace-icon.js';
 
 export function ProjectSidebar({ projects, sessions, selected, connected, request, select, openDirectory, onDialogChange, chooseDirectory }: {
@@ -49,23 +50,24 @@ export function ProjectSidebar({ projects, sessions, selected, connected, reques
       if (directory) openDirectory(id); else select(id);
     });
   }
-  const sessionButtons = (items: SessionInfo[]) => items.filter(s => !s.archivedAt).map(session => <div className="session-row" key={session.id}><button aria-current={session.id === selected ? 'page' : undefined} className={`session ${session.id === selected ? 'selected' : ''}`} onClick={() => select(session.id)} disabled={!connected}><span className="session-title" title={session.title}>{session.title}</span>{session.activeRunId && <span className="pulse" title="执行中"/>}</button><button className="session-action" aria-label={`归档对话 ${session.title}`} title={session.activeRunId ? '任务运行或等待审批中，完成后才能归档' : '归档对话（保留历史）'} disabled={!connected || pending || !!session.activeRunId} onClick={() => void perform(async () => { returnFocus.current = archiveEntry.current; await request({type:'session.archive',sessionId:session.id}); })}><WorkspaceIcon name="archive"/></button></div>);
-  const archiveList = sessions.filter(s => s.archivedAt);
+  const sessionButtons = (items: SessionInfo[]) => items.map(session => <div className="session-row" key={session.id}><button aria-current={session.id === selected ? 'page' : undefined} className={`session ${session.id === selected ? 'selected' : ''}`} onClick={() => select(session.id)} disabled={!connected}><span className="session-title" title={session.title}>{session.title}</span>{session.activeRunId && <span className="pulse" title="执行中"/>}</button><button className="session-action" aria-label={`归档对话 ${session.title}`} title={session.activeRunId ? '任务运行或等待审批中，完成后才能归档' : '归档对话（保留历史）'} disabled={!connected || pending || !!session.activeRunId} onClick={() => void perform(async () => { returnFocus.current = archiveEntry.current; await request({type:'session.archive',sessionId:session.id}); })}><WorkspaceIcon name="archive"/></button></div>);
+  const sessionIndex = useMemo(() => indexSessionList(sessions, projects), [sessions, projects]);
+  const archiveList = sessionIndex.archived;
 
   return <>
     <nav className="project-navigation" aria-label="项目与会话">
       <button ref={archiveEntry} className="archive-entry" aria-pressed={archived} onClick={() => showArchived(!archived)}><WorkspaceIcon name={archived ? 'back' : 'archive'}/>{archived ? '返回会话' : `归档对话${archiveList.length ? ` (${archiveList.length})` : ''}`}</button>
-      {archived ? <section aria-label="归档对话列表"><p className="sidebar-empty">归档保留历史和目录归属。恢复后可在原列表继续。</p>{!archiveList.length && <p className="sidebar-empty">暂无归档对话</p>}{archiveList.map(session => <div className="archived-session" key={session.id}><div><strong title={session.title}>{session.title}</strong><small>{projects.find(p => p.id === session.projectId)?.name ?? '独立对话'}</small></div><button className="session-action" aria-label={`恢复对话 ${session.title}`} title="恢复到原会话列表" disabled={!connected || pending} onClick={() => void perform(async () => { returnFocus.current = archiveEntry.current; await request({type:'session.restore',sessionId:session.id}); })}><WorkspaceIcon name="restore"/></button></div>)}</section> : <>
+      {archived ? <section aria-label="归档对话列表"><p className="sidebar-empty">归档保留历史和目录归属。恢复后可在原列表继续。</p>{!archiveList.length && <p className="sidebar-empty">暂无归档对话</p>}{archiveList.map(session => <div className="archived-session" key={session.id}><div><strong title={session.title}>{session.title}</strong><small>{sessionIndex.projectNames.get(session.projectId ?? '') ?? '独立对话'}</small></div><button className="session-action" aria-label={`恢复对话 ${session.title}`} title="恢复到原会话列表" disabled={!connected || pending} onClick={() => void perform(async () => { returnFocus.current = archiveEntry.current; await request({type:'session.restore',sessionId:session.id}); })}><WorkspaceIcon name="restore"/></button></div>)}</section> : <>
       <div className="project-section-heading"><span>项目</span><button aria-label="新建项目" title="新建项目" disabled={!connected || pending} onClick={event => edit(event.currentTarget)}><WorkspaceIcon name="plus"/></button></div>
       {projects.map(project => <section className="project-group" key={project.id}>
         <div className="project-row"><button className="project-toggle" aria-label={`${project.collapsed ? '展开' : '收起'}项目 ${project.name}`} aria-expanded={!project.collapsed} aria-controls={`project-${project.id}`} disabled={!connected || pending} onClick={() => void perform(async () => { await request({type:'project.collapse',projectId:project.id,collapsed:!project.collapsed}); })}><WorkspaceIcon name="folder"/><span title={project.name}>{project.name}</span><WorkspaceIcon name="chevron"/></button><button aria-label={`重命名项目 ${project.name}`} title="重命名项目" disabled={!connected || pending} onClick={event => edit(event.currentTarget, project)}><WorkspaceIcon name="edit"/></button></div>
         <div id={`project-${project.id}`} hidden={project.collapsed} className="project-children">
           <button className="project-directory" title={project.workspace} disabled={!connected || pending} onClick={() => void createSession(project, true)}><WorkspaceIcon name="folder"/><span>项目目录</span></button>
           <button className="project-new-chat" title={`在 ${project.name} 中新建对话`} aria-label={`在 ${project.name} 中新建对话`} disabled={!connected || pending} onClick={() => void createSession(project)}><WorkspaceIcon name="plus"/><span>新对话</span></button>
-          {sessionButtons(sessions.filter(s => s.projectId === project.id))}
+          {sessionButtons(sessionIndex.active.get(project.id) ?? [])}
         </div>
       </section>)}
-      <div className="sidebar-label">独立对话</div>{sessionButtons(sessions.filter(s => !s.projectId))}
+      <div className="sidebar-label">独立对话</div>{sessionButtons(sessionIndex.active.get(undefined) ?? [])}
       {!sessions.some(s => !s.archivedAt) && !projects.length && <p className="sidebar-empty">新的想法，从这里开始。<br/>连接 Host 后保存你的会话。</p>}
       </>}
       {!dialog && error && <p role="alert" className="error">{error}</p>}

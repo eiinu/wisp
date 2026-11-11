@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useLayoutEffect, useRef, useState } from 'react';
 import type { FileEntry, FilePreview, Request, Result } from '@wisp/core';
 import type { LinkSource } from './preview-model.js';
 import { WorkspaceIcon } from './workspace-icon.js';
@@ -63,6 +63,7 @@ export function FilePanel({ sessionId, workspace, inheritedWorkspace, connected,
       apply(result){sequence.current++;setError('');setNotice('');if(filePath!==undefined){if(!result.file)throw new Error('Host 未返回文件');setFile(result.file);}else{if(!result.entries)throw new Error('Host 未返回目录');setEntries(result.entries);}}
     });
   });
+  const source = useMemo<LinkSource | undefined>(() => sessionId && workspace && file ? {kind:'file', sessionId, workspace, path:file.path} : undefined, [sessionId, workspace, file?.path]);
   const editable = file?.text !== undefined && file.text.length <= displayLimit && new TextEncoder().encode(file.text).length <= 200000;
   return <>
     <div className="file-toolbar">{filePath === undefined ? <>
@@ -82,7 +83,7 @@ export function FilePanel({ sessionId, workspace, inheritedWorkspace, connected,
         {editing ? <><p className="file-status">{newFile ? '新文件，尚未保存。' : '修改将以 UTF-8 保存。'}写入需要在对话中审批。</p><label>相对文件路径<input disabled={saving} value={file.path} onChange={e => setFile({ ...file, path: e.target.value })}/></label>
           <textarea className="file-editor" aria-label="文件内容" disabled={saving} value={text} onChange={e => setText(e.target.value)}/>
           <button className="primary" disabled={!connected || active || saving || !file.path.trim()} onClick={() => void save()}>{saving ? '正在提交…' : '提交写入审批'}</button>
-          <button disabled={saving} onClick={() => { setEditing(false); if (newFile) setFile(undefined); }}>放弃编辑</button></> : <><FileContents file={file} source={sessionId && workspace ? { kind: 'file', sessionId, workspace, path: file.path } : undefined}/>{file.text !== undefined && !editable && <p className="file-status">此文件超出面板编辑限制，请使用本地编辑器。</p>}</>}
+          <button disabled={saving} onClick={() => { setEditing(false); if (newFile) setFile(undefined); }}>放弃编辑</button></> : <><FileContents file={file} source={source}/>{file.text !== undefined && !editable && <p className="file-status">此文件超出面板编辑限制，请使用本地编辑器。</p>}</>}
       </div>}
     </>}
   </>;

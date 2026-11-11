@@ -75,3 +75,15 @@ it('keeps failed process status visible while allowing read-only log and artifac
  await render(<ToolActivity events={processEvents} ended canPreview={false} openFile={vi.fn()} openArtifact={open}/>);
  expect(container.querySelector('[role=status]')?.textContent).toContain('1 项失败');const log=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='预览 进程日志.txt')!;expect(log.disabled).toBe(false);await act(()=>log.click());expect(open).toHaveBeenCalledWith('进程日志.txt','bounded log');
 });
+it('does not repeatedly parse immutable search results or process artifacts on parent updates',async()=>{
+ const text=JSON.stringify({matches:[{path:'match.md',line:1}],output:'log',artifacts:[{name:'report.md',text:'report'}]});
+ const parse=vi.spyOn(JSON,'parse');
+ try {
+  for(const name of ['files_search','process_run_skill']){
+   const input=[{...events[0],data:{id:'c',name,args:{}}},{...events[1],data:{callId:'c',text}}];
+   const before=parse.mock.calls.filter(([value])=>value===text).length;
+   for(let i=0;i<10;i++)await render(<ToolActivity events={input} ended canPreview={!!(i%2)} openFile={vi.fn()} openArtifact={vi.fn()}/>);
+   expect(parse.mock.calls.filter(([value])=>value===text).length-before).toBe(1);
+  }
+ }finally{parse.mockRestore();}
+});

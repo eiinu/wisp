@@ -3,6 +3,8 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import type { WorkbenchBridge, Snapshot, RunEvent, Notice, Result } from '@wisp/core';
+import { FilePanel } from './file-panel.js';
+import { LinkConfirmationProvider } from './link-confirmation.js';
 import { App } from './app.js';
 const { parses } = vi.hoisted(() => ({parses:vi.fn()}));
 vi.mock('react-markdown',async original => {
@@ -57,4 +59,29 @@ it('creates and archives a conversation with a large background history and retu
  await act(()=>container.querySelector<HTMLButtonElement>('button[aria-label="归档对话 新会话"]')!.click());
  expect(container.querySelector('.session.selected')?.textContent).toBe('First');expect(container.querySelector('.messages')?.textContent).toContain('Preserved answer');
  expect(snapshot.events).toHaveLength(25001);
+});
+
+it('does not reparse or reload hidden file tabs during parent/stream updates and preserves unsaved edits',async()=>{
+ const request=vi.fn(async()=>({file:{path:'notes.md',kind:'markdown' as const,text:'# File contents\n\n[link](relative.md)',size:44}}));
+ const render=async(active:boolean,hidden:boolean)=>act(()=>root.render(<LinkConfirmationProvider onOpen={()=>{}}>{['a','b'].map(id=><div key={id} hidden={hidden}><FilePanel sessionId="one" workspace="/allowed" connected active={active} request={request} chooseWorkspace={()=>{}} filePath="notes.md"/></div>)}</LinkConfirmationProvider>));
+ await render(false,false);expect(parses).toHaveBeenCalledTimes(2);expect(request).toHaveBeenCalledTimes(2);
+ for(let i=0;i<10;i++)await render(!!(i%2),!!(i%2));
+ expect(parses).toHaveBeenCalledTimes(2);expect(request).toHaveBeenCalledTimes(2);
+ await render(false,false);
+ await act(()=>Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='编辑')!.click());
+ const editor=container.querySelector<HTMLTextAreaElement>('.file-editor')!;
+ await act(()=>{Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(editor,'unsaved edit');editor.dispatchEvent(new Event('input',{bubbles:true}));});
+ await render(false,true);await render(false,false);expect(container.querySelector<HTMLTextAreaElement>('.file-editor')?.value).toBe('unsaved edit');expect(request).toHaveBeenCalledTimes(2);
+});
+it('switches between large histories without mixing sessions and keeps ordered streamed bursts',async()=>{
+ let notify!:(notice:Notice)=>void;
+ const snapshot=state([...Array.from({length:25000},(_,i)=>({...event(`history-${i}`),sessionId:i%2?'one':'two',type:'model_activity' as const})),event('first','First answer'),{...event('second','Second answer'),sessionId:'two'}]);
+ snapshot.sessions.push({id:'two',title:'Second',createdAt:'',updatedAt:''});
+ const bridge:WorkbenchBridge={request:vi.fn(async input=>input.type==='snapshot'?{snapshot}:{}),subscribe:callback=>{notify=callback;return ()=>{};}};
+ await act(()=>root.render(<App initialClient={bridge}/>));
+ expect(container.querySelector('.messages')?.textContent).toContain('First answer');
+ await act(()=>Array.from(container.querySelectorAll<HTMLButtonElement>('.session')).find(b=>b.textContent==='Second')!.click());
+ expect(container.querySelector('.messages')?.textContent).toContain('Second answer');expect(container.querySelector('.messages')?.textContent).not.toContain('First answer');
+ await act(()=>{for(const [id,text] of [['a','fragment A '],['b','fragment B'],['b','ignored duplicate']])notify({type:'event',event:{...event(id,text),type:'assistant_delta',runId:'stream',sessionId:'two'}});});
+ expect(container.querySelector('.messages')?.textContent).toContain('fragment A fragment B');expect(container.textContent).not.toContain('ignored duplicate');
 });

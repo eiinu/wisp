@@ -1,3 +1,4 @@
+import { interruptedStarts } from './interrupted-runs.js';
 import {ImageStore} from './images.js';
 import {supportsImages,imageSchema,type ChatImage,type ModelInfo} from '@wisp/core';
 import type {PublicHttp} from './public-http.js';
@@ -56,8 +57,7 @@ export class Runtime {
     if (this.vault) { try { this.credential.storage = await this.vault.available() ? 'secure' : 'session'; const key = await this.vault.load(); this.credential.saved = !!key; if (key && this.store.state.config && officialDeepSeek(this.store.state.config)) { this.key = key; this.protectedKey = true; } } catch { this.credential.error = '安全存储不可用或凭据无法解密；请解锁系统钥匙串、重新保存或删除凭据'; } }
     for (const session of this.store.state.sessions) {
       const log = this.log(session.id), events = await log.read(); this.events.push(...events);
-      const starts = events.filter(e => e.type === 'started');
-      for (const start of starts) if (!events.some(e => e.runId === start.runId && ['completed', 'cancelled', 'failed'].includes(e.type))) {
+      for (const start of interruptedStarts(events)) {
         const interrupted: RunEvent = { version: 1, id: randomUUID(), sessionId: session.id, runId: start.runId, parentRunId: start.parentRunId, taskTitle: start.taskTitle, at: new Date().toISOString(), type: 'failed', data: { reason: 'Host 已重启；原任务已中断，没有重放工具。' } };
         await log.append(interrupted); this.events.push(interrupted);
       }
