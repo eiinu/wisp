@@ -21,3 +21,14 @@ it('resolves relative file links with session provenance and denies unsafe links
   const open=vi.fn();await act(()=>root.render(<LinkConfirmationProvider onOpen={open}><Markdown text={'[file](../notes.txt) [bad](javascript:alert)'} source={{kind:'file',sessionId:'s',workspace:'/allowed',path:'docs/readme.md'}}/></LinkConfirmationProvider>));
   expect(container.querySelectorAll('.markdown-link')).toHaveLength(1);await act(()=>container.querySelector<HTMLButtonElement>('.markdown-link')!.click());await act(()=>Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='确认打开')!.click());expect(open).toHaveBeenCalledWith({kind:'file',sessionId:'s',workspace:'/allowed',path:'notes.txt'});
 });
+it('does not reparse unchanged Markdown on parent updates and uses the latest confirmation callback',async()=>{
+ const parse=vi.fn(),extensions={remarkPlugins:[()=>parse]},first=vi.fn(),latest=vi.fn();
+ const render=async(open:typeof first)=>act(()=>root.render(<LinkConfirmationProvider onOpen={open}><Markdown text={'# Stable history\n\n[link](https://example.com)'} extensions={extensions}/></LinkConfirmationProvider>));
+ await render(first);expect(parse).toHaveBeenCalledTimes(1);
+ for(let i=0;i<10;i++)await render(latest);
+ expect(parse).toHaveBeenCalledTimes(1);
+ await act(()=>container.querySelector<HTMLButtonElement>('.markdown-link')!.click());
+ expect(container.querySelector('[role=alertdialog]')).not.toBeNull();
+ await act(()=>Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='确认打开')!.click());
+ expect(first).not.toHaveBeenCalled();expect(latest).toHaveBeenCalledExactlyOnceWith({kind:'web',url:'https://example.com/'});
+});

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Markdown } from './markdown.js';
 import { groupExecution } from './tool-groups.js';
 import type { RunEvent } from '@wisp/core';
@@ -6,7 +6,7 @@ const names: Record<string, string> = { http_read:'读取公开网页',http_down
 export const toolLabel = (name:string) => names[name] ?? name;
 /** Only presentation: preview still uses the current session's Host authorization. */
 export function ToolActivity({ events, ended, canPreview, previewUnavailableReason, openFile, openArtifact }: { events: RunEvent[]; ended: boolean; canPreview: boolean; previewUnavailableReason?: string; openFile(path: string): void; openArtifact?(title:string,text:string):void }) {
-  const {process} = groupExecution(events);
+  const {process} = useMemo(() => groupExecution(events), [events]);
   const calls = process.flatMap(round=>round.events.filter(e=>e.type==='tool_requested'));
   const problems = events.filter(e=>e.type==='tool_result'&&(e.data.isError||e.data.denied));
   if (!calls.length) return null;

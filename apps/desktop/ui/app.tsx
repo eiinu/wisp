@@ -4,13 +4,13 @@ import { SkillPicker, SkillActivity } from './skills.js';
 import { SubagentActivity } from './subagent-activity.js';
 import {tabActionDelivery,type TabActionHandler} from './tab-action-delivery.js';
 import { InteractionCard, RunQuestions } from './questionnaire.js';
-import React, { useCallback, useReducer, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { WorkbenchBridge, Request, Snapshot, RunEvent, Result } from '@wisp/core';
+import React, { useCallback, useMemo, useReducer, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { WorkbenchBridge, Request, Snapshot, Result } from '@wisp/core';
 import { webBridge } from './bridge.js';
 import { copyText } from './clipboard.js';
 import { tabListDelivery } from './tab-list-delivery.js';
 import { previewDelivery } from './preview-delivery.js';
-import { groupExecution } from './tool-groups.js';
+import { mergeHistory, indexSessions, historyTurns } from './history.js';
 import { ToolActivity, toolLabel } from './tool-activity.js';
 import { Markdown } from './markdown.js';
 import { ProjectSidebar } from './project-sidebar.js';
@@ -62,7 +62,10 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const approvalLocks = useRef(new Set<string>()), [approving, setApproving] = useState<string[]>([]);
   const bottom = useRef<HTMLDivElement>(null), messageScroll = useRef<HTMLDivElement>(null), followStream = useRef(true), modalElement = useRef<HTMLElement>(null);
-  const current = snapshot.sessions.find(s => s.id === selected && !s.archivedAt), events = snapshot.events.filter(e => e.sessionId === selected);
+  const sessions = useMemo(() => indexSessions(snapshot.events), [snapshot.events]);
+  const events = useMemo(() => sessions.get(selected) ?? [], [sessions, selected]);
+  const turns = useMemo(() => historyTurns(events), [events]);
+  const current = snapshot.sessions.find(s => s.id === selected && !s.archivedAt);
   const prompt = drafts[selected ?? 'new'] ?? '', active = current?.activeRunId;
   const modelReady = !!snapshot.config && (snapshot.config.provider === 'offline' || snapshot.keyPresent);
   const api = async (request: Request): Promise<Result> => { if (!bridge || !connected) throw new Error('本机 Host 未连接'); return bridge.request(request); };
@@ -89,7 +92,7 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
       try {
         const { snapshot: next } = await bridge!.request({ type: 'snapshot' });
         if (!live || revision !== generation || !next) return;
-        setSnapshot(previous => ({ ...next, events: [...new Map([...next.events, ...previous.events.filter(e => !next.events.some(n => n.id === e.id))].map(e => [e.id, e])).values()] }));
+        setSnapshot(previous => ({ ...next, events: mergeHistory(previous.events, next.events) }));
         setSelected(value => {
           const previous = next.sessions.find(s => s.id === value);
           if (previous?.archivedAt) return next.sessions.find(s => !s.archivedAt && s.projectId === previous.projectId)?.id;
@@ -176,7 +179,7 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
     };
     window.addEventListener('keydown', shortcuts); return () => window.removeEventListener('keydown', shortcuts);
   }, [connected, bridge, modal, projectDialog, settingsOpen]);
-  const runs = [...new Set(events.filter(e=>!e.parentRunId).map(e => e.runId))];
+  const runs = useMemo(() => turns.map(turn => turn.runId), [turns]);
   return <LinkConfirmationProvider onOpen={openPreview}><div className={`workbench ${sidebar ? 'sidebar-visible' : ''}`} style={settingsOpen ? { display: 'none' } : undefined} inert={settingsOpen}>
     <aside className="sidebar"><div className="brand"><span className="mark">w</span><strong>Wisp</strong><button className="icon mobile" onClick={() => setSidebar(false)} aria-label="关闭侧栏"><WorkspaceIcon name="close"/></button></div>
       <button className="new-chat" onClick={() => void newSession()} disabled={!connected}><WorkspaceIcon name="plus"/> 新对话 <kbd>⌘ N</kbd></button>
@@ -190,15 +193,11 @@ export function App({ initialClient, chooseSkillDirectory }: { initialClient?: W
       {!connected && <div className="connection-banner"><span>{window.wisp ? error ? '本机 Host 连接失败，请重试；若 Host 已停止，请重新启动 Wisp。' : '正在连接本机 Host。如出现 Wisp Safe Storage 系统提示，请按需授权读取已保存的 Key；密码仅输入系统弹窗。' : '此界面未连接本机 Host，不能执行任务或读取文件。'}</span>{window.wisp ? <button onClick={() => { setError(''); setConnectionAttempt(value => value + 1); }}>重新连接</button> : <button onClick={event => openModal('connect', event.currentTarget)}>连接 Host <WorkspaceIcon name="forward"/></button>}</div>}
 
       <div className="workspace-body"><main className="conversation"><div className="messages" ref={messageScroll} onScroll={() => { const el = messageScroll.current; if (el) { followStream.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100; setAwayFromBottom(!followStream.current); } }}>
-        {!runs.length ? <div className="welcome"><span className="welcome-mark">w</span><h1>今天，我们一起完成什么？</h1><p>从一个想法到真正完成。<br/>让 Wisp 帮你处理文件、梳理信息，推进手边的事。</p><div className="suggestions"><button onClick={() => { setDrafts(d => ({ ...d, [selected ?? 'new']: '列出文件' })); chooseWorkspace(); }}><WorkspaceIcon name="folder"/><strong>看看我的工作目录</strong><small>授权后浏览和阅读本地文件</small></button><button onClick={() => { dispatchPreview({type: 'open', id: `web:${crypto.randomUUID()}`, target: {kind: 'web', url: ''}}); setPanel(true); }}><WorkspaceIcon name="globe"/><strong>打开一个网页</strong><small>在侧面查看你选择的链接</small></button></div></div> : runs.map(runId => {
-          const run = events.filter(e => e.runId === runId), start = run.find(e => e.type === 'started'), terminal = run.findLast(e => ['completed', 'failed', 'cancelled'].includes(e.type));
-          const steps = [...new Set(run.filter(e => e.type === 'assistant' || e.type === 'assistant_delta').map(e => Number(e.data.step ?? 0)))];
-          const {answers} = groupExecution(run);
-          const pending = run.filter(e => e.type === 'approval_requested' && !run.some(n => n.type === 'approval_resolved' && n.data.callId === e.data.id));
+        {!runs.length ? <div className="welcome"><span className="welcome-mark">w</span><h1>今天，我们一起完成什么？</h1><p>从一个想法到真正完成。<br/>让 Wisp 帮你处理文件、梳理信息，推进手边的事。</p><div className="suggestions"><button onClick={() => { setDrafts(d => ({ ...d, [selected ?? 'new']: '列出文件' })); chooseWorkspace(); }}><WorkspaceIcon name="folder"/><strong>看看我的工作目录</strong><small>授权后浏览和阅读本地文件</small></button><button onClick={() => { dispatchPreview({type: 'open', id: `web:${crypto.randomUUID()}`, target: {kind: 'web', url: ''}}); setPanel(true); }}><WorkspaceIcon name="globe"/><strong>打开一个网页</strong><small>在侧面查看你选择的链接</small></button></div></div> : turns.map(({runId, run, start, terminal, steps, answers, pending, children}) => {
           return <div className="turn" key={runId}><div className="user-message">{String(start?.data.prompt ?? '')}{Array.isArray(start?.data.images)&&<MessageImages key={`${selected}:${runId}`} images={start.data.images.flatMap(i=>{const parsed=imageSchema.safeParse(i);return parsed.success?[parsed.data]:[];})} sessionId={selected!} request={api} onResend={!active&&!busy&&!readingImages?images=>{if(images.length+draftImages.length>4){setError('每次最多选择 4 张图片');return;}setImageDrafts(d=>({...d,[selected??'new']:[...draftImages,...images]}));composerInput.current?.focus();}:undefined}/>}</div><div className="assistant-message"><span className="assistant-mark">w</span><div className="assistant-body">
 
             <SkillActivity events={run}/><ToolActivity openArtifact={(title,text)=>{if(selected)openPreview({kind:'artifact',sessionId:selected,title,text});}} events={run} ended={!!terminal} canPreview={connected && !!current?.workspace} previewUnavailableReason={!connected ? '本机服务未连接，连接后可预览文件' : '此会话尚未授权工作目录，授权后可预览文件'} openFile={path => { if (selected && current?.workspace) openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path}); }}/>
-            <SubagentActivity openArtifact={(title,text)=>{if(selected)openPreview({kind:'artifact',sessionId:selected,title,text});}} events={events} parentRunId={runId} sessionId={selected!} connected={connected} request={api} canPreview={connected&&!!current?.workspace} openFile={path=>{if(selected&&current?.workspace)openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path});}}/>
+            <SubagentActivity openArtifact={(title,text)=>{if(selected)openPreview({kind:'artifact',sessionId:selected,title,text});}} events={children} parentRunId={runId} sessionId={selected!} connected={connected} request={api} canPreview={connected&&!!current?.workspace} openFile={path=>{if(selected&&current?.workspace)openPreview({kind:'file',sessionId:selected,workspace:current.workspace,path});}}/>
             {answers.map((round,index)=><Markdown key={round.step ?? `history-${index}`} text={round.text}/>)}
             {!terminal && pending.map(e => <InteractionCard title="操作授权" className="approval" key={e.id}><div className="approval-title"><WorkspaceIcon name="shield"/> 需要你的批准</div><pre className="approval-description">{String(e.data.description)}</pre><strong>{toolLabel(String(e.data.name))}</strong><pre>{JSON.stringify(e.data.args, null, 2)}</pre><small>仅批准这一次调用。拒绝后不会执行此操作。</small><div><button className="primary" disabled={!connected || approving.includes(`${runId}:${String(e.data.id)}`)} onClick={() => void approve(selected!, runId, String(e.data.id), true)}>批准执行</button><button disabled={!connected || approving.includes(`${runId}:${String(e.data.id)}`)} onClick={() => void approve(selected!, runId, String(e.data.id), false)}>拒绝</button></div></InteractionCard>)}
             <RunQuestions events={run} ended={!!terminal} connected={connected} request={api}/>
