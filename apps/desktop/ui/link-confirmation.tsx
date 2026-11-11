@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { safeWebUrl, type LinkSource } from './preview-model.js';
 
 type Pending = { target: LinkSource; owner: string };
@@ -29,7 +29,9 @@ export function LinkConfirmationProvider({ children, onOpen }: { children: React
     document.addEventListener('keydown', key, true);
     return () => { document.removeEventListener('keydown', key, true); if (previous?.isConnected) previous.focus(); };
   }, [!!pending, close]);
-  return <LinkContext.Provider value={{ request, cancel, blocked: !!pending }}>{children}{pending && <div className="modal-backdrop link-confirmation" onClick={close}><section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="link-confirm-title" aria-describedby="link-confirm-description" ref={dialog} onClick={e => e.stopPropagation()}>
+  const blocked = !!pending;
+  const value = useMemo(() => ({ request, cancel, blocked }), [request, cancel, blocked]);
+  return <LinkContext.Provider value={value}>{children}{pending && <div className="modal-backdrop link-confirmation" onClick={close}><section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="link-confirm-title" aria-describedby="link-confirm-description" ref={dialog} onClick={e => e.stopPropagation()}>
     <div className="modal-heading"><h2 id="link-confirm-title">{pending.target.kind === 'web' ? '在右侧打开网页？' : '在右侧预览文件？'}</h2></div>
     <div className="modal-body"><p id="link-confirm-description">{pending.target.kind === 'web' ? '确认后会请求以下网站。网页内容由该网站提供，部分网站可能不允许嵌入。' : '确认后通过当前会话的授权目录读取文件。'}</p>
       <strong>{pending.target.kind === 'web' ? new URL(pending.target.url).hostname : '授权目录内文件'}</strong><p className="confirm-target">{pending.target.kind === 'web' ? pending.target.url : pending.target.path}</p>
