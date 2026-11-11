@@ -23,6 +23,17 @@ export class Registry<T> {
 }
 
 export const QIANFAN_MODEL='ernie-5.5-flash-preview';
+export type CredentialProvider = 'deepseek' | 'qianfan';
+/** Persisted official credentials must never be restored into custom endpoints. */
+export function secureCredentialProvider(config: {provider:string; baseUrl:string}): CredentialProvider | undefined {
+  try {
+    const url = new URL(config.baseUrl);
+    if (url.username || url.password || url.search || url.hash) return undefined;
+    if (config.provider === 'deepseek' && url.origin === 'https://api.deepseek.com' && ['/', '/v1', '/v1/'].includes(url.pathname)) return 'deepseek';
+    if (config.provider === 'qianfan' && url.origin === 'https://qianfan.baidubce.com' && ['/v2', '/v2/'].includes(url.pathname)) return 'qianfan';
+  } catch {}
+  return undefined;
+}
 export const QIANFAN_BASE_URL='https://qianfan.baidubce.com/v2';
 export const modelConfigSchema = z.object({
   provider: z.enum(['deepseek', 'qianfan', 'openai-compatible', 'offline']),

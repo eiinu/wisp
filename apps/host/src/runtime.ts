@@ -1,6 +1,6 @@
 import { interruptedStarts } from './interrupted-runs.js';
 import {ImageStore} from './images.js';
-import {supportsImages,imageSchema,type ChatImage,type ModelInfo} from '@wisp/core';
+import {secureCredentialProvider,type CredentialProvider,supportsImages,imageSchema,type ChatImage,type ModelInfo} from '@wisp/core';
 import type {PublicHttp} from './public-http.js';
 import type {ProcessRunner,detectInterpreters} from './host-process.js';
 import { SkillInstall } from './skill-install.js';
@@ -11,7 +11,7 @@ import { askUserTool } from './questionnaire.js';
 import { PreviewTabs } from './preview-tabs.js';
 import { pageReadTool } from './page-tool.js';
 import type { DesktopService } from './desktop-service.js';
-import { officialDeepSeek, type CredentialVault } from './credentials.js';
+import { type CredentialVault } from './credentials.js';
 import { PreviewRequests } from './preview.js';
 import { ConversationStore } from './conversation.js';
 import { asModelProvider } from './model.js';
@@ -44,7 +44,7 @@ export class Runtime {
   private imageSupport(){const config=this.store.state.config;return supportsImages(config,this.modelCatalog?.key===`${config?.provider}:${config?.baseUrl}`?this.modelCatalog.models:undefined);}
   private key = '';
   private keyChanging = false;
-  private protectedKey = false;
+  private protectedKey: CredentialProvider | undefined;
   private credential: NonNullable<Snapshot['credential']> = { storage: 'session', saved: false };
   private skills: SkillRegistry;
   private skillInstall: SkillInstall;
@@ -54,7 +54,15 @@ export class Runtime {
   async init() {
     await this.store.load(); await this.mcp.init(); await this.skills.init();
     if (this.development) { this.key = this.development.key; this.store.state.config = { provider: 'deepseek', model: 'wisp-dev-simulator', baseUrl: this.development.baseUrl }; await this.store.save(); }
-    if (this.vault) { try { this.credential.storage = await this.vault.available() ? 'secure' : 'session'; const key = await this.vault.load(); this.credential.saved = !!key; if (key && this.store.state.config && officialDeepSeek(this.store.state.config)) { this.key = key; this.protectedKey = true; } } catch { this.credential.error = '安全存储不可用或凭据无法解密；请解锁系统钥匙串、重新保存或删除凭据'; } }
+    if (this.vault) {
+      try {
+        this.credential.storage = await this.vault.available() ? 'secure' : 'session';
+        const scope = this.store.state.config ? secureCredentialProvider(this.store.state.config) : 'deepseek';
+        const key = scope ? await this.vault.load(scope) : undefined;
+        this.credential.saved = !!key;
+        if (key && scope && this.store.state.config) { this.key = key; this.protectedKey = scope; }
+      } catch { this.credential.error = '安全存储不可用或凭据无法解密；请解锁系统钥匙串、重新保存或删除凭据'; }
+    }
     for (const session of this.store.state.sessions) {
       const log = this.log(session.id), events = await log.read(); this.events.push(...events);
       for (const start of interruptedStarts(events)) {
@@ -85,7 +93,7 @@ export class Runtime {
     const config = this.store.state.config; if (!config) throw new Error('请先配置模型；也可以明确选择离线验证模式');
     if (config.provider === 'offline') return () => asModelProvider(offlineProvider);
     if (!this.key) throw new Error('API Key 未在当前 Host 进程中设置');
-    if (this.protectedKey && !officialDeepSeek(config)) throw new Error('持久化 DeepSeek Key 仅限官方 API');
+    if (this.protectedKey && secureCredentialProvider(config) !== this.protectedKey) throw new Error('持久化 Key 仅限对应提供商的官方 API');
     const snapshot=structuredClone(config), key=this.key, setting=this.store.state.assistantSetting??'', vision=this.imageSupport();
     return () => configuredProvider(snapshot,key,setting,vision);
   }
@@ -132,8 +140,9 @@ export class Runtime {
       this.keyChanging = true;
       try {
         if (command.type === 'model.clearKey') {
-          this.key = ''; this.protectedKey = false;
-          try { await this.vault?.delete(); this.credential.saved = false; delete this.credential.error; }
+          this.key = ''; this.protectedKey = undefined;
+          const scope = this.store.state.config ? secureCredentialProvider(this.store.state.config) : 'deepseek';
+          try { if (scope) await this.vault?.delete(scope); this.credential.saved = false; delete this.credential.error; }
           catch { this.credential.error = '内存已清除，但删除本地凭据失败，请重试'; throw new Error(this.credential.error); }
         } else {
           const config = command.config;
@@ -141,22 +150,26 @@ export class Runtime {
             let url: URL; try { url = new URL(config.baseUrl); } catch { throw new Error('Base URL 无效'); }
             if (url.username || url.password || url.search || url.hash || !(url.protocol === 'https:' || (url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)))) throw new Error('模型地址仅允许 HTTPS 或本机 HTTP，不能包含凭据、查询参数或片段');
           }
-          const supplied = command.apiKey?.trim();
+          const supplied = command.apiKey?.trim(), scope = secureCredentialProvider(config);
+          const sameEndpoint = this.store.state.config?.provider === config.provider && this.store.state.config?.baseUrl === config.baseUrl;
+          let key = sameEndpoint ? this.key : '', protectedKey = sameEndpoint ? this.protectedKey : undefined;
+          let saved = sameEndpoint ? this.credential.saved : false;
           if (command.rememberKey) {
             if (!this.vault || !await this.vault.available()) throw new Error('此环境不支持安全持久化，请明确选择仅会话保存');
-            if (!officialDeepSeek(config)) throw new Error('仅能为 DeepSeek 官方 API 保存 Key；自定义地址使用独立会话凭据');
-            const key = supplied || (this.protectedKey ? this.key : undefined);
-            if (!key) throw new Error('请输入需要安全保存的 Key');
-            await this.vault.save(key); this.key = key; this.protectedKey = true; this.credential.saved = true; this.credential.storage = 'secure';
-          } else {
-            if (this.store.state.config?.baseUrl !== config.baseUrl || this.store.state.config?.provider !== config.provider) { this.key = ''; this.protectedKey = false; }
-            if (supplied !== undefined) {
-              if (this.vault) { await this.vault.delete(); this.credential.saved = false; }
-              this.key = supplied; this.protectedKey = false;
-            } else if (this.vault && officialDeepSeek(config) && !this.key) {
-              const restored = await this.vault.load(); if (restored) { this.key = restored; this.protectedKey = true; this.credential.saved = true; }
-            }
+            if (!scope) throw new Error('仅能为对应提供商的官方 API 保存 Key；自定义地址使用独立会话凭据');
+            const retained = supplied || (protectedKey === scope ? key : await this.vault.load(scope));
+            if (!retained) throw new Error('请输入需要安全保存的 Key');
+            await this.vault.save(retained, scope); key = retained; protectedKey = scope; saved = true;
+            this.credential.storage = 'secure';
+          } else if (supplied !== undefined) {
+            // Replacing with a session-only key affects only this official provider slot.
+            if (this.vault && scope) await this.vault.delete(scope);
+            key = supplied; protectedKey = undefined; saved = false;
+          } else if (this.vault && scope && !key) {
+            const restored = await this.vault.load(scope);
+            if (restored) { key = restored; protectedKey = scope; saved = true; }
           }
+          this.key = key; this.protectedKey = protectedKey; this.credential.saved = saved;
           this.store.state.config = { ...config }; delete this.credential.error;
         }
         await this.store.save(); this.publish({ type: 'changed' }); return {};

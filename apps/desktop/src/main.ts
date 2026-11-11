@@ -48,7 +48,7 @@ async function startDesktop() {
     // Recheck the initial snapshot if it timed out while secure storage initialized.
     if (message?.type === 'host-ready') { if (!window.isDestroyed()) window.webContents.send('wisp:notice', { type: 'changed' }); return; }
     if (message?.type === 'credential-request' && typeof message.id === 'string') {
-      try { let value: unknown; if (message.operation === 'available') value = await vault.available(); else if (message.operation === 'load') value = await vault.load(); else if (message.operation === 'delete') await vault.delete(); else if (message.operation === 'save' && typeof message.key === 'string' && message.key.length <= 4096) await vault.save(message.key); else throw new Error('Invalid credential operation'); if (host.connected) host.send({ type: 'credential-response', id: message.id, ok: true, value }); }
+      try { const provider = message.provider ?? 'deepseek'; if (provider !== 'deepseek' && provider !== 'qianfan') throw new Error('Invalid credential provider'); let value: unknown; if (message.operation === 'available') value = await vault.available(); else if (message.operation === 'load') value = await vault.load(provider); else if (message.operation === 'delete') await vault.delete(provider); else if (message.operation === 'save' && typeof message.key === 'string' && message.key.length <= 4096) await vault.save(message.key, provider); else throw new Error('Invalid credential operation'); if (host.connected) host.send({ type: 'credential-response', id: message.id, ok: true, value }); }
       catch { if (host.connected) host.send({ type: 'credential-response', id: message.id, ok: false }); }
       return;
     }
