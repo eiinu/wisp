@@ -107,3 +107,20 @@ it('does not corrupt approval IDs or numeric schemas when env contains a short f
  expect(events.find(e=>e.type==='tool_requested')?.data.source).toMatchObject({serviceId:f.id});
  expect(events.find(e=>e.type==='tool_result')?.data.callId).toBe('call-1');expect(events.find(e=>e.type==='tool_result')?.data.text).toContain('private flag [REDACTED]');
 });
+
+it('keeps HTTP and unsupported records intact across branch switches without starting them or breaking valid stdio services',async()=>{
+ const {writeFile}=await import('node:fs/promises');const {randomUUID}=await import('node:crypto');
+ const f=await setup(),file=join(f.directory,'mcp-servers.json');const existing=JSON.parse(await readFile(file,'utf8'));
+ const http={id:randomUUID(),name:'Todo HTTP',command:'',args:[],transport:'streamable-http',url:'http://127.0.0.1:3030/mcp',envNames:[],envStorage:'none',customMetadata:{preserve:true}};
+ const future={...http,id:randomUUID(),name:'Future transport',command:'fixture',transport:'future-protocol'};
+ await writeFile(file,JSON.stringify([...existing,http,future]));
+ const restart=new LocalMcp(f.directory,()=>{},f.desktop,f.factory);cleanup.push(()=>restart.shutdown());await restart.init();
+ expect(restart.snapshot().find(s=>s.id===http.id)).toMatchObject({state:'failed',message:expect.stringContaining('原配置已保留')});
+ await expect(restart.activate(http.id)).rejects.toThrow('不支持');await expect(restart.activate(future.id)).rejects.toThrow('不支持');expect(f.servers).toHaveLength(0);
+ await restart.activate(f.id);expect(restart.tools()).toHaveLength(1);
+ await restart.save(undefined,{name:'Another stdio',command:'fixture',args:[]},undefined,false);
+ expect(JSON.parse(await readFile(file,'utf8')).find((item:any)=>item.id===http.id)).toEqual(http);
+ expect(JSON.parse(await readFile(file,'utf8')).find((item:any)=>item.id===future.id)).toEqual(future);
+ await expect(restart.save(http.id,{name:'Overwrite',command:'node',args:[]},{},false)).rejects.toThrow('已保留');
+ expect(JSON.parse(await readFile(file,'utf8')).find((item:any)=>item.id===http.id)).toEqual(http);
+});
