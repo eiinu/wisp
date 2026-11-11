@@ -42,10 +42,10 @@ it('a denied tool never writes, and cancellation stops the HTTP stream without r
  f.hold();await f.runtime.request({type:'run.start',sessionId:f.sessionId,prompt:'取消连接'});await vi.waitFor(()=>expect(f.started()).toBe(true));const active=f.runtime.snapshot().sessions[0].activeRunId!;
  const count=f.requests.length;await f.runtime.request({type:'run.cancel',sessionId:f.sessionId,runId:active});await vi.waitFor(()=>expect(f.runtime.snapshot().sessions[0].activeRunId).toBeUndefined());expect(f.requests).toHaveLength(count);expect(f.runtime.snapshot().events.some(e=>e.runId===active&&e.type==='cancelled')).toBe(true);
 });
-it('provider switching never restores or sends the saved DeepSeek key to Qianfan and rejects Qianfan persistence',async()=>{
- const root=await mkdtemp(join(tmpdir(),'wisp-qianfan-keys-'));cleanup.push(()=>rm(root,{recursive:true,force:true}));const vault={available:async()=>true,load:vi.fn(async()=> 'FAKE_SAVED_DEEPSEEK'),save:vi.fn(async()=>{}),delete:vi.fn(async()=>{})};
+it('provider switching never restores or sends the saved DeepSeek key to Qianfan and persists only its own slot',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'wisp-qianfan-keys-'));cleanup.push(()=>rm(root,{recursive:true,force:true}));const vault={available:async()=>true,load:vi.fn(async(provider?:string)=>provider==='qianfan'?undefined:'FAKE_SAVED_DEEPSEEK'),save:vi.fn(async()=>{}),delete:vi.fn(async()=>{})};
  const runtime=new Runtime(root,undefined,vault);await runtime.init();cleanup.push(()=>runtime.shutdown());await runtime.request({type:'model.save',config:{provider:'deepseek',model:'deepseek-flash',baseUrl:'https://api.deepseek.com'}});expect(runtime.snapshot().keyPresent).toBe(true);
  const config={provider:'qianfan',model:QIANFAN_MODEL,baseUrl:'https://qianfan.baidubce.com/v2'};await runtime.request({type:'model.save',config});expect(runtime.snapshot().keyPresent).toBe(false);await expect(runtime.request({type:'model.list'})).rejects.toThrow('Key');
- await expect(runtime.request({type:'model.save',config,apiKey:fake,rememberKey:true})).rejects.toThrow('DeepSeek');expect(vault.save).not.toHaveBeenCalled();
- await runtime.request({type:'model.save',config,apiKey:fake,rememberKey:false});expect(runtime.snapshot().keyPresent).toBe(true);expect(runtime.snapshot().credential?.saved).toBe(false);expect(vault.save).not.toHaveBeenCalled();expect(JSON.stringify(runtime.snapshot())).not.toContain(fake);
+ await runtime.request({type:'model.save',config,apiKey:fake,rememberKey:true});expect(vault.save).toHaveBeenCalledExactlyOnceWith(fake,'qianfan');
+ await runtime.request({type:'model.save',config,apiKey:fake,rememberKey:false});expect(runtime.snapshot().keyPresent).toBe(true);expect(runtime.snapshot().credential?.saved).toBe(false);expect(vault.delete).toHaveBeenLastCalledWith('qianfan');expect(JSON.stringify(runtime.snapshot())).not.toContain(fake);
 });
