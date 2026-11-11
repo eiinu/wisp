@@ -1,3 +1,4 @@
+import { qianfanProvider } from './qianfan.js';
 import {supportsImages} from '@wisp/core';
 import { withAssistantSetting } from './assistant-setting.js';
 import type { ModelProvider } from '@wisp/core';
@@ -7,6 +8,7 @@ import { createModels, createProvider, type Api, type Context, type Model, type 
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy';
 import type { Message, ModelConfig, GenerationProvider } from '@wisp/core';
 export function configuredProvider(config: ModelConfig, apiKey: string, assistantSetting = '', imageInputSupported = supportsImages(config)): ModelProvider {
+  if(config.provider==='qianfan')return qianfanProvider(config,apiKey,{},assistantSetting);
   if (config.provider === 'deepseek') return deepseekProvider(config, apiKey, {}, assistantSetting, imageInputSupported);
   if (config.thinking !== undefined || config.effort !== undefined) throw new Error('当前兼容适配器不支持 DeepSeek 思考参数');
   const model: Model<'openai-completions'> = {

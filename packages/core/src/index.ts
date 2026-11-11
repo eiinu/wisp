@@ -22,13 +22,15 @@ export class Registry<T> {
   values() { return [...this.entries.values()]; }
 }
 
+export const QIANFAN_MODEL='ernie-5.5-flash-preview';
+export const QIANFAN_BASE_URL='https://qianfan.baidubce.com/v2';
 export const modelConfigSchema = z.object({
-  provider: z.enum(['deepseek', 'openai-compatible', 'offline']),
+  provider: z.enum(['deepseek', 'qianfan', 'openai-compatible', 'offline']),
   model: z.string().trim().min(1).max(160),
   baseUrl: z.string().max(2000),
   thinking: z.enum(['enabled', 'disabled']).optional(),
   effort: z.enum(['low', 'high', 'max']).optional(),
-});
+}).refine(config=>config.provider!=='qianfan'||(config.thinking===undefined&&config.effort===undefined),'千帆暂不支持显式思考参数');
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 const sid = z.string().uuid();
 export const previewTabSchema = z.object({ id:z.string().min(1).max(4096), kind:z.enum(['web','file','new','workspace','artifact']), title:z.string().max(300), active:z.boolean(), url:z.string().max(8192).optional(), path:z.string().max(4096).optional(), revision:z.number().int().nonnegative().optional() }).strict();

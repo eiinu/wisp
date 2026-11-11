@@ -19,6 +19,7 @@ export function mcpToolName(id: string, name: string) { return `mcp_${id.replace
 /** Third-party processes are trusted by the user, NOT sandboxed by project roots. */
 export class LocalMcp {
   private records: Stored[] = [];
+  private incompatible: Record<string,any>[] = [];
   private connections = new Map<string, Connection>();
   private states = new Map<string, Pick<McpServerInfo,'state'|'message'>>();
   private envs = new Map<string, Record<string,string>>();
@@ -35,14 +36,18 @@ export class LocalMcp {
     try { raw = JSON.parse(await readFile(join(this.directory,'mcp-servers.json'),'utf8')); }
     catch(error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw new Error('本地 MCP 配置无法读取'); }
     if (!Array.isArray(raw) || raw.length > limits.servers) throw new Error('本地 MCP 配置格式错误');
-    this.records = raw.map(item => {
-      const config=mcpConfigSchema.parse({name:item.name,command:item.command,args:item.args,cwd:item.cwd});
+    const records:Stored[]=[],incompatible:Record<string,any>[]=[];
+    for(const item of raw){
+      if(!item||typeof item!=='object'||Array.isArray(item))throw new Error('本地 MCP 配置格式错误');
+      const config=mcpConfigSchema.safeParse({name:item.name,command:item.command,args:item.args,cwd:item.cwd});
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(item.id) || !Array.isArray(item.envNames) || item.envNames.length>64 || !item.envNames.every((key:unknown)=>typeof key==='string'&&/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(key)) || !['none','session','secure'].includes(item.envStorage)) throw new Error('本地 MCP 配置格式错误');
-      return {...config,id:item.id,envNames:item.envNames,envStorage:item.envStorage};
-    });
-    if (new Set(this.records.map(item=>item.id)).size!==this.records.length) throw new Error('本地 MCP ID 重复');
+      if(!config.success||(item.transport!==undefined&&item.transport!=='stdio')||item.url!==undefined){incompatible.push(item);continue;}
+      records.push({...config.data,id:item.id,envNames:item.envNames,envStorage:item.envStorage});
+    }
+    if (new Set([...records,...incompatible].map(item=>item.id)).size!==raw.length) throw new Error('本地 MCP ID 重复');
+    this.records=records;this.incompatible=incompatible;
   }
-  snapshot(): McpServerInfo[] { return structuredClone(this.records.map(record => ({...record,...this.states.get(record.id)??{state:'disabled' as const},tools:(this.connections.get(record.id)?.tools??[]).map(tool=>({name:tool.name,remoteName:this.redact(tool.source!.toolName),description:tool.description}))}))); }
+  snapshot(): McpServerInfo[] { return structuredClone([...this.incompatible.map(item=>({id:item.id,name:typeof item.name==='string'?item.name.slice(0,80):'不兼容的 MCP 配置',command:'',args:[],envNames:item.envNames,envStorage:item.envStorage,state:'failed' as const,message:'当前分支不支持此服务配置；原配置已保留，不会启动。请切回支持该传输方式的分支。',tools:[]})),...this.records.map(record => ({...record,...this.states.get(record.id)??{state:'disabled' as const},tools:(this.connections.get(record.id)?.tools??[]).map(tool=>({name:tool.name,remoteName:this.redact(tool.source!.toolName),description:tool.description}))}))]); }
   redact = (text:string) => {
     for(const secret of [...this.secrets].sort((a,b)=>b.length-a.length)) {
       if(secret.length>=8)text=text.split(secret).join('[REDACTED]');
@@ -61,10 +66,10 @@ export class LocalMcp {
   }
   get redactionLength() { return Math.max(0,...[...this.secrets].map(value=>value.length)); }
   private remember(env:Record<string,string>) { Object.values(env).filter(Boolean).forEach(value=>this.secrets.add(value)); }
-  private get(id:string) { const record=this.records.find(item=>item.id===id); if(!record)throw new Error('MCP 服务不存在');return record; }
+  private get(id:string) { const record=this.records.find(item=>item.id===id); if(!record)throw new Error(this.incompatible.some(item=>item.id===id)?'当前分支不支持此 MCP 配置，原配置已保留；请切回支持该传输方式的分支':'MCP 服务不存在');return record; }
   private async persist() {
     await mkdir(this.directory,{recursive:true,mode:0o700});const file=join(this.directory,'mcp-servers.json'),temp=`${file}.${randomUUID()}.tmp`;
-    try{await writeFile(temp,JSON.stringify(this.records,null,2),{flag:'wx',mode:0o600});await rename(temp,file);}finally{await rm(temp,{force:true});}
+    try{await writeFile(temp,JSON.stringify([...this.records,...this.incompatible],null,2),{flag:'wx',mode:0o600});await rename(temp,file);}finally{await rm(temp,{force:true});}
   }
   private async exclusive<T>(id:string, operation:()=>Promise<T>) { if(this.stopped)throw new Error('Host 已关闭');if(this.locks.has(id))throw new Error('MCP 配置正在处理');this.locks.add(id);try{return await operation();}finally{this.locks.delete(id);this.changed();} }
   private binding(config:McpConfig) {return createHash('sha256').update(JSON.stringify([config.command,config.args,config.cwd??''])).digest('hex');}
@@ -75,7 +80,7 @@ export class LocalMcp {
       const old=id?this.get(id):undefined;
       if(old && this.states.get(old.id)?.state==='connecting')throw new Error('请先禁用正在连接的服务');
       if(old && this.locks.has(old.id))throw new Error('服务正在激活，请先禁用');
-      if(!old && this.records.length>=limits.servers)throw new Error('最多配置 16 个 MCP 服务');
+      if(!old && this.records.length+this.incompatible.length>=limits.servers)throw new Error('最多配置 16 个 MCP 服务');
       const key=old?.id??randomUUID();await this.disable(key);
       let envNames=old?.envNames??[],envStorage=old?.envStorage??'none';
       if(env!==undefined){env=mcpEnvSchema.parse(env);this.remember(env);envNames=Object.keys(env);envStorage=envNames.length?remember?'secure':'session':'none';
